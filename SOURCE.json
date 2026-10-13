@@ -1,5 +1,5 @@
 {
-  "source_commit": "84c01e7a1d360e4d1e9d3b3e68bce729b3b10c42",
+  "source_commit": "6aee3aeb78c2aa10375b4b094ed6cf72c584d836",
   "app_version": "1.0.0",
   "py_version": "0.3.0",
   "files": {
@@ -75,7 +75,7 @@
     "macos/Tests/HEICConverterTests/StatusItemInteractionTests.swift": "f89a3ae6367b06fa1ebe25850946dd7350d45d5e44c304d00ee3eea8770444cf",
     "macos/Tests/HEICConverterTests/WorkerClientTests.swift": "e9948663ae3cb9fa407aa63b33a1e04598e1a61295d788409a649d1399fcb898",
     "packaging/macos/Info.plist": "54883cb4209ba9a6e0498da57cfff2551dee119c9d367b2856beac028ba44ceb",
-    "packaging/macos/README.md": "161402e36cf45af1f2f375542d0105a63be5125759259bc6ee310d844abddc43",
+    "packaging/macos/README.md": "6c29af5458232d1938c63a52ea6b1ea8fd61b719ec55e40cbd467cbd31b29e9e",
     "packaging/macos/build.sh": "24fcc7389ab1dc645b9e834447ed4b21d8dd60684fb38eea825953185cfe2504",
     "packaging/macos/clipboard_probe.swift": "f98b35c9644861423f165adebb86cdda2233c7990ffb6e12a6d2aee3605cc85b",
     "packaging/macos/collect_licenses.py": "f709f6444e2a0e70e6197c9c1c0b773e81f46e830c6fcc5ec835354f4e00fb03",

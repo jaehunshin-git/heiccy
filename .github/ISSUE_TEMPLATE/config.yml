@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 사용 설명
+    url: https://github.com/jaehunshin-git/heiccy#readme
+    about: 이슈를 작성하기 전에 사용 설명과 지원 범위를 확인해 주세요.

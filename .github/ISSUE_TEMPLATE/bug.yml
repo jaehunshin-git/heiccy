@@ -1,0 +1,35 @@
+name: 버그 신고
+description: heiccy 앱 또는 CLI/TUI의 오류를 알려 주세요.
+title: "[버그] "
+body:
+  - type: markdown
+    attributes:
+      value: 사진 원본, 개인정보, 인증 정보가 포함된 파일이나 로그는 첨부하지 마세요.
+  - type: dropdown
+    id: component
+    attributes:
+      label: 사용 구성 요소
+      options:
+        - macOS 앱
+        - CLI/TUI
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      description: 제품 버전, macOS 버전, CPU 종류와 CLI/TUI의 경우 Python 버전을 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 방법
+      description: 실행 순서, 기대 결과와 실제 결과를 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 추가 정보
+      description: 개인정보를 제거한 오류 메시지나 화면을 첨부해 주세요.

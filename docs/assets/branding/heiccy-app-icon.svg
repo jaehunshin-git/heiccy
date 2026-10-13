@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="app-icon-title">
+  <title id="app-icon-title">heiccy 앱 아이콘</title>
+  <rect x="96" y="96" width="832" height="832" rx="180" fill="#fff" />
+  <g transform="translate(188 152) scale(36)">
+    <path d="M6 3.5 H4.375 Q2.375 3.5 2.375 5.5 V16.75 Q2.375 18.75 4.375 18.75 H13.625 Q15.625 18.75 15.625 16.75 V5.5 Q15.625 3.5 13.625 3.5 H12 V2.25 Q12 1.25 11 1.25 H7 Q6 1.25 6 2.25 Z M6 3.5 V4.25 Q6 5.25 7 5.25 H11 Q12 5.25 12 4.25 V3.5" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    <circle cx="6.25" cy="10.9" r="0.72" fill="#000" />
+    <circle cx="11.75" cy="10.9" r="0.72" fill="#000" />
+    <path d="M7.85 12.4 Q9 13.55 10.15 12.4" fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" />
+  </g>
+</svg>

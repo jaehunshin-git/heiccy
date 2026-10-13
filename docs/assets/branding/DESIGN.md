@@ -36,7 +36,7 @@ omitted:
 - 한국어 발음: **헤이키**.
 - 소개 문구: **HEIC를 JPEG·PNG로, 알아서.** / **변환은 헤이키에게.**
 
-이 문서는 확정된 브랜드 에셋과 앱의 시각 적용 기준을 기록한다. 앱의 표시 이름과 패널 서비스명은 소문자 `heiccy`를 사용한다. 배포 앱은 `heiccy.app`, DMG는 `heiccy-0.3.0-arm64.dmg`, 볼륨 이름은 `heiccy`다. 내부 실행 파일 `HEICConverter`, 번들 ID, PyPI·CLI 이름과 기존 `~/Pictures/HEIC Converter` 출력 폴더는 호환성을 위해 유지한다.
+이 문서는 확정된 브랜드 에셋과 앱의 시각 적용 기준을 기록한다. 앱의 표시 이름과 패널 서비스명은 소문자 `heiccy`를 사용한다. 배포 앱은 `heiccy.app`, DMG는 `heiccy-1.0.0-arm64.dmg`, 볼륨 이름은 `heiccy`다. 내부 실행 파일 `HEICConverter`, 번들 ID, PyPI·CLI 이름과 기존 `~/Pictures/HEIC Converter` 출력 폴더는 호환성을 위해 유지한다.
 
 ## Colors
 

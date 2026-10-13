@@ -1,5 +1,5 @@
 {
-  "source_commit": "06887729b2b74299aa94c4c69f8fef74341a9859",
+  "source_commit": "1e0efb2dbea77b7ca4057315a80a30eb2d48ecba",
   "app_version": "1.0.0",
   "py_version": "0.3.0",
   "files": {
@@ -8,7 +8,7 @@
     "README.ko.md": "3290c983a0d2e30f084a2b428e789328a9187900b3ec591c3bd2313c67f94516",
     "README.md": "430df8d71e37d000bb81480c8840a8c26e5400ac870685e44adbcbf3822c3637",
     "README.pypi.md": "0bbad873b66cac4e7de2b65d2b31d0cd57ec35dc23544b84a148e07b5c514192",
-    "docs/assets/branding/DESIGN.md": "6657e5ea622b7cce294a9ff08de8819b7835306be4b82163e140034e44935c2f",
+    "docs/assets/branding/DESIGN.md": "f855aed35fb7360f5fbc6fe87487887d627f20956e03c32ac4a9a615a57888d0",
     "docs/assets/branding/heiccy-app-icon.icns": "b9392898042f2875d8c75d0ced071f3c4ec2724303493e55f8f6fcf723be34ea",
     "docs/assets/branding/heiccy-app-icon.png": "12ee2d6e3ac78cf4d5314234512cbe63220b9cdc4d876c8c1915fd904f5bc48b",
     "docs/assets/branding/heiccy-app-icon.svg": "4a4a32c1c2076e1f3ee6c69833d0b8a8e5f907ac239a76278d5e8743ed1a243d",
@@ -59,7 +59,7 @@
     "macos/Tests/HEICConverterTests/StatusItemInteractionTests.swift": "f89a3ae6367b06fa1ebe25850946dd7350d45d5e44c304d00ee3eea8770444cf",
     "macos/Tests/HEICConverterTests/WorkerClientTests.swift": "e9948663ae3cb9fa407aa63b33a1e04598e1a61295d788409a649d1399fcb898",
     "packaging/macos/Info.plist": "54883cb4209ba9a6e0498da57cfff2551dee119c9d367b2856beac028ba44ceb",
-    "packaging/macos/README.md": "139aa0b928790de1873242fae5b415511663a3783439440378c44e89380a13fb",
+    "packaging/macos/README.md": "3306ad502f02939c84fbc2c1623a28404d7f4e1e87a3832e171fd8a816614934",
     "packaging/macos/build.sh": "fdfa56c7817de4ca7f475745cee418e92eeb66bc6a7e475a3cfc680c62121f14",
     "packaging/macos/clipboard_probe.swift": "f98b35c9644861423f165adebb86cdda2233c7990ffb6e12a6d2aee3605cc85b",
     "packaging/macos/collect_licenses.py": "f709f6444e2a0e70e6197c9c1c0b773e81f46e830c6fcc5ec835354f4e00fb03",

@@ -84,21 +84,12 @@ if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 DMG="$DIST/heiccy-$APP_VERSION-arm64.dmg"
-rm -f "$DMG"
+rm -f "$DMG" "$DMG.sha256"
 echo 'DMG 생성 환경:'
 sw_vers
 uname -m
-# APFS 생성 정지를 피하고, hdiutil이 멈추면 체크섬/설치 검증으로 진행하지 않는다.
-"$PYTHON" - "$STAGING" "$DMG" <<'PY'
-import subprocess
-import sys
-
-subprocess.run(
-    ["hdiutil", "create", "-verbose", "-volname", "heiccy",
-     "-srcfolder", sys.argv[1], "-fs", "HFS+", "-format", "UDZO", sys.argv[2]],
-    check=True, timeout=300,
-)
-PY
+# APFS 생성 정지를 피한다. Resource busy만 제한 재시도하며 다른 실패는 즉시 중단한다.
+"$PYTHON" packaging/macos/create_dmg.py "$STAGING" "$DMG"
 (cd "$DIST" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
 "$PYTHON" packaging/macos/validate_dmg.py "$DMG"
 echo "검증 완료: $DMG"

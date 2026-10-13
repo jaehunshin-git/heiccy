@@ -15,7 +15,7 @@
 
 ```bash
 uv sync --group dev
-uvx ruff==0.14.4 check src tests packaging/macos packaging/release
+uvx ruff==0.14.4 check src tests scripts packaging/macos packaging/release
 uv run pytest
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 swift test --package-path macos
@@ -26,6 +26,11 @@ bash packaging/macos/build.sh
 수행하므로 실행 중 Finder가 열리거나 앱 포커스가 바뀔 수 있습니다.
 의존성은 `packaging/macos/requirements.lock`의 버전과 해시로 고정합니다.
 실행 앱은 사용자의 Python·Homebrew·uv·pip에 의존하지 않습니다.
+
+소스 기여자는 `bash scripts/install_git_hooks.sh`로 커밋 메시지 검사 훅을
+설치할 수 있습니다. 규칙·기존 훅 설정·해제 방법은
+[Git 훅 안내](commit-message-hooks.md)를 참고하세요. 개발용 훅은 공개 소스에
+포함하며 PyPI 배포에는 포함하지 않습니다.
 
 ## 산출물
 

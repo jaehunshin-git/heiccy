@@ -3,7 +3,9 @@
 import hashlib
 import importlib.util
 import json
+import os
 import plistlib
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,15 @@ if not SCRIPT.is_file():
 spec = importlib.util.spec_from_file_location("export_public", SCRIPT)
 exporter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(exporter)
+
+PUBLIC_HOOK_FILES = (
+    ".githooks/commit-msg",
+    "scripts/check_commit_message.py",
+    "scripts/commit_message_rules.json",
+    "scripts/install_git_hooks.sh",
+    "docs/commit-message-hooks.md",
+)
+EXECUTABLE_HOOK_FILES = {".githooks/commit-msg", "scripts/install_git_hooks.sh"}
 
 
 def git(root, *arguments):
@@ -53,6 +64,8 @@ def source(tmp_path):
     git(root, "config", "user.email", "fixture@example.invalid")
     for name in exporter.REQUIRED:
         write(root, name, f"커밋 파일: {name}\n")
+    for name in PUBLIC_HOOK_FILES:
+        (root / name).chmod(0o755 if name in EXECUTABLE_HOOK_FILES else 0o644)
     write(
         root,
         "pyproject.toml",
@@ -87,6 +100,16 @@ def source(tmp_path):
         "AGENTS.md",
         ".github/workflows/private.yml",
         ".github/ISSUE_TEMPLATE/private.yml",
+        ".githooks/pre-commit",
+        ".githooks/commit-msg.backup",
+        ".githooks/.env",
+        ".githooks/nested/commit-msg",
+        "scripts/internal.py",
+        "scripts/check_commit_message.py.backup",
+        "scripts/nested/check_commit_message.py",
+        "scripts/.env",
+        "scripts/.private/check_commit_message.py",
+        "src/.githooks/commit-msg",
         "input/photo.heic",
         "output/photo.jpeg",
         "docs/internal.md",
@@ -153,6 +176,68 @@ def git_blob(root, sha, name):
     ).stdout
 
 
+def test_public_hooks_preserve_commit_bytes_modes_and_manifest(source, tmp_path):
+    root, sha, _ = source
+    for name in PUBLIC_HOOK_FILES:
+        write(root, name, "커밋 이후 변경한 작업 트리 내용")
+        (root / name).chmod(0o644 if name in EXECUTABLE_HOOK_FILES else 0o755)
+    destination = tmp_path / "공개 훅"
+    manifest = exporter.export_snapshot(destination, sha, source_root=root)
+    for name in PUBLIC_HOOK_FILES:
+        target = destination / name
+        body = git_blob(root, sha, name)
+        assert target.read_bytes() == body
+        assert manifest["files"][name] == hashlib.sha256(body).hexdigest()
+        assert stat.S_IMODE(target.stat().st_mode) == (
+            0o755 if name in EXECUTABLE_HOOK_FILES else 0o644
+        )
+
+
+def test_exported_hooks_work_in_independent_checkout(source, tmp_path, monkeypatch):
+    root, _, _ = source
+    for name in list(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("COMMIT_MESSAGE_PYTHON", sys.executable)
+    for name in PUBLIC_HOOK_FILES:
+        write(root, name, (ROOT / name).read_bytes())
+    sha = commit(root)
+    destination = tmp_path / "독립 공개 체크아웃"
+    exporter.export_snapshot(destination, sha, source_root=root)
+    git(destination, "init")
+    git(destination, "config", "user.name", "공개 훅 검증")
+    git(destination, "config", "user.email", "fixture@example.invalid")
+    result = subprocess.run(
+        ["bash", str(destination / "scripts/install_git_hooks.sh")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert git(destination, "config", "--local", "--get", "core.hooksPath") == ".githooks"
+    git(destination, "commit", "--allow-empty", "-m", "fix: 오류 수정")
+    before = git(destination, "rev-parse", "HEAD")
+    rejected = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(destination),
+            "commit",
+            "--allow-empty",
+            "-m",
+            "fix: 기능을 추가합니다",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert rejected.returncode != 0 and "차단" in rejected.stderr
+    assert git(destination, "rev-parse", "HEAD") == before
+
+
 @pytest.mark.parametrize("value", ["HEAD", "a" * 39, "g" * 40, "0" * 40])
 def test_requires_existing_full_commit_sha(source, tmp_path, value):
     root, _, _ = source
@@ -202,6 +287,7 @@ def test_rejects_submodule_without_reading_it(source, tmp_path):
         "docs/compatibility.md",
         "docs/releases/1.0.0.md",
         "packaging/macos/Info.plist",
+        *PUBLIC_HOOK_FILES,
     ],
 )
 def test_missing_required_files_preserve_existing_destination(

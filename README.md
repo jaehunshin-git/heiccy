@@ -260,6 +260,20 @@ uv build
 uvx --from twine twine check dist/*
 ```
 
+### Commit message hooks
+
+Source contributors can install the repository's Korean Conventional Commits
+validator with Python 3.11 or later; no extra Python packages are required:
+
+```sh
+bash scripts/install_git_hooks.sh
+```
+
+The hook blocks invalid titles, declarative prose endings, and malformed footers.
+See [the hook guide](docs/commit-message-hooks.md)
+for rules, limitations, existing hook settings, worktree scope, and uninstall steps.
+Developer hooks are available in source checkouts, outside the PyPI distribution.
+
 ## 📚 Behavior and options
 
 ### Command format

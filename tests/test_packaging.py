@@ -209,6 +209,9 @@ def macos_build(tmp_path):
         source = source.replace(f"/usr/bin/{command}", command)
     source = source.replace("/usr/libexec/PlistBuddy", "PlistBuddy")
     (packaging / "build.sh").write_text(source)
+    (packaging / "create_dmg.py").write_text(
+        (ROOT / "packaging/macos/create_dmg.py").read_text()
+    )
     (packaging / "Info.plist").write_text("fixture")
     (root / "LICENSE").write_text("fixture")
     binary = tmp_path / "bin"
@@ -233,6 +236,12 @@ def macos_build(tmp_path):
     command(
         "hdiutil",
         'printf "hdiutil %s\\n" "$*" >> "$BUILD_TEST_LOG"\n'
+        'count_file="$BUILD_TEST_LOG.attempts"\n'
+        'count=$(cat "$count_file" 2>/dev/null || echo 0)\n'
+        'count=$((count + 1)); echo "$count" > "$count_file"\n'
+        'if [[ "$count" -le "${DMG_BUSY_ATTEMPTS:-0}" ]]; then\n'
+        '  echo partial > "${@: -1}"\n'
+        '  echo "hdiutil: create failed - Resource busy" >&2; exit 1\nfi\n'
         'if [[ "${DMG_STATUS:-0}" != 0 ]]; then exit "$DMG_STATUS"; fi\n'
         'touch "${@: -1}"',
     )
@@ -250,6 +259,8 @@ def macos_build(tmp_path):
     python.write_text(
         '#!/bin/bash\nset -eu\n'
         'if [[ "$1" == -c || "$1" == -m ]]; then exit 0; fi\n'
+        'if [[ "$1" == packaging/macos/create_dmg.py ]]; then\n'
+        '  exec "$BUILD_TEST_PYTHON" "$@"\nfi\n'
         'if [[ "$1" == packaging/* ]]; then\n'
         '  echo "$1" >> "$BUILD_TEST_LOG"; exit 0\nfi\n'
         'exec "$BUILD_TEST_PYTHON" "$@"\n'
@@ -274,6 +285,8 @@ def test_full_build_prepares_gui_and_creates_hfs_dmg(macos_build, dmg_status):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("preserve")
         preserved.append(path)
+    checksum = root / "dist/macos/heiccy-0.3.0-arm64.dmg.sha256"
+    checksum.write_text("previous checksum")
     result = subprocess.run(
         ["/bin/bash", str(root / "packaging/macos/build.sh")],
         env={**env, "DMG_STATUS": str(dmg_status)},
@@ -284,7 +297,6 @@ def test_full_build_prepares_gui_and_creates_hfs_dmg(macos_build, dmg_status):
     commands = log.read_text()
     assert commands.index("Finder ready") < commands.index("app smoke --smoke-test")
     assert "-fs HFS+ -format UDZO" in commands
-    checksum = root / "dist/macos/heiccy-0.3.0-arm64.dmg.sha256"
     # 성공 fixture에서는 실제 hdiutil 대신 빈 이미지를 해시한다.
     if dmg_status == 0:
         assert "packaging/macos/validate_dmg.py" in commands
@@ -292,9 +304,28 @@ def test_full_build_prepares_gui_and_creates_hfs_dmg(macos_build, dmg_status):
         assert (root / "build/macos/dmg-root/heiccy.app").is_dir()
         assert "-volname heiccy" in commands
         assert checksum.exists()
+        assert checksum.read_text() != "previous checksum"
     else:
         assert "packaging/macos/validate_dmg.py" not in commands
         assert not checksum.exists()
+
+
+@pytest.mark.parametrize("busy_attempts", [1, 3])
+def test_build_retries_only_busy_creation_before_checksum(macos_build, busy_attempts):
+    root, env, log = macos_build
+    result = subprocess.run(
+        ["/bin/bash", str(root / "packaging/macos/build.sh")],
+        env={**env, "DMG_BUSY_ATTEMPTS": str(busy_attempts)},
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert (result.returncode == 0) is (busy_attempts == 1), result.stderr
+    commands = log.read_text()
+    assert commands.count("hdiutil create") == min(busy_attempts + 1, 3)
+    checksum = root / "dist/macos/heiccy-0.3.0-arm64.dmg.sha256"
+    assert checksum.exists() is (busy_attempts == 1)
+    assert ("packaging/macos/validate_dmg.py" in commands) is (busy_attempts == 1)
+    if busy_attempts == 3:
+        assert not (root / "dist/macos/heiccy-0.3.0-arm64.dmg").exists()
 
 
 def test_build_stops_without_gui_before_build_or_finder(macos_build):

@@ -20,11 +20,16 @@ FILES = {
     "pyproject.toml",
     "uv.lock",
     ".gitignore",
+    ".githooks/commit-msg",
+    "scripts/check_commit_message.py",
+    "scripts/commit_message_rules.json",
+    "scripts/install_git_hooks.sh",
     "macos/Package.swift",
     "packaging/release/export_public.py",
     "packaging/release/verify_release.py",
     "packaging/release/collect_codec_sources.py",
     "docs/build.md",
+    "docs/commit-message-hooks.md",
     "docs/compatibility.md",
     "docs/third-party-sources.md",
 }
@@ -44,8 +49,13 @@ REQUIRED = {
     "README.pypi.md",
     "LICENSE",
     "pyproject.toml",
+    ".githooks/commit-msg",
+    "scripts/check_commit_message.py",
+    "scripts/commit_message_rules.json",
+    "scripts/install_git_hooks.sh",
     "packaging/macos/Info.plist",
     "docs/build.md",
+    "docs/commit-message-hooks.md",
     "docs/compatibility.md",
     "docs/third-party-sources.md",
     "packaging/release/collect_codec_sources.py",
@@ -82,7 +92,12 @@ def allowed(name: str) -> bool:
     if path.is_absolute() or ".." in path.parts:
         return False
     if any(
-        part in FORBIDDEN or (part.startswith(".") and part != ".gitignore")
+        part in FORBIDDEN
+        or (
+            part.startswith(".")
+            and part != ".gitignore"
+            and name != ".githooks/commit-msg"
+        )
         for part in path.parts
     ):
         return False

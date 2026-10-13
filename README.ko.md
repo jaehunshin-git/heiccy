@@ -258,6 +258,20 @@ uv build
 uvx --from twine twine check dist/*
 ```
 
+### 커밋 메시지 훅
+
+소스 기여자는 Python 3.11 이상으로 한국어 Conventional Commits 검사 훅을 설치할 수
+있습니다. 추가 Python 패키지는 필요하지 않습니다.
+
+```sh
+bash scripts/install_git_hooks.sh
+```
+
+훅은 잘못된 제목, 서술형 종결, footer 형식 위반을 차단합니다.
+[훅 안내](docs/commit-message-hooks.md)에서
+규칙과 판별 한계, 기존 훅 설정 처리, worktree 적용 범위와 해제 방법을 확인하세요.
+개발용 훅은 소스 체크아웃에 제공하며 PyPI 배포에는 포함하지 않습니다.
+
 ## 📚 동작 및 옵션
 
 ### 명령 형식

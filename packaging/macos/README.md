@@ -28,6 +28,11 @@ bash packaging/macos/build.sh
 5. 임시 폴더에 합성한 HEIC를 사용해 사용자 Python이 없는 PATH에서 JPEG와 PNG 변환을 확인한다. 합성 Apple 게인 맵 HEIC의 내장 PyObjC HDR 경로도 실행해 16비트 PNG와 PQ ICC 또는 cICP, safe GPS 제거, 원본 보존을 검증한다. 앱 `--smoke-test`도 내장 worker 연결을 확인한다.
 6. `heiccy.app`과 `/Applications` 심볼릭 링크만 담은 `heiccy` 볼륨의 DMG를 만들고 SHA-256을 생성한다. 읽기 전용으로 마운트하고 실제 볼륨 이름이 `heiccy`인지 확인한 뒤 임시 설치 복사본의 앱과 worker를 다시 실행한다.
 
+DMG 생성의 최종 오류가 `hdiutil: create failed - Resource busy`인 경우에만 최대 총
+3회, 2초 간격으로 재시도한다. 각 시도의 로그와 종료 코드를 보존하고 실패한 DMG 파일만
+정리한다. 다른 오류·300초 타임아웃·재시도 소진은 빌드를 중단하며 검증 실패는 재시도하지
+않는다. 이전 체크섬은 생성 전에 제거하고 성공 후 다시 만든다.
+
 산출물은 다음과 같다. 앱 표시 이름과 패널 이름은 `heiccy`이며, 내부 실행 파일 `HEICConverter`와 번들 ID `io.github.jaehunshin-git.heic-converter`는 유지한다. PyPI 패키지·CLI 이름과 기존 `~/Pictures/HEIC Converter` 출력 폴더도 유지한다.
 
 - `dist/macos/heiccy.app`

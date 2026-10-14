@@ -58,3 +58,17 @@ python3 scripts/check_submission.py --kind pr --title 'docs: 배포 안내 정�
 명시적 교체 승인 없이 `--replace`를 사용하지 않으며 `--no-verify`나 훅 비활성화로 실패를 우회하지 않습니다.
 커밋·push·PR 생성·merge·태그 생성·push·릴리스 게이트 변경·게시의 승인 범위를 각각 확인합니다.
 `gh`는 샌드박스 밖에서 실행하며 인증 정보나 전용 PAT를 저장소·로그·배포 파일에 넣지 않습니다.
+
+## README Markdown 검사
+
+Node.js가 있는 환경에서 저장소 루트를 기준으로 실행합니다.
+
+```sh
+npx --yes markdownlint-cli2@0.23.3
+```
+
+설정은 `.markdownlint-cli2.jsonc`이며 루트의 README Markdown 파일을 검사합니다.
+본문은 80자, CLI 출력 등의 코드 블록은 100자로 제한합니다. 표는 행 내부를 나눌 수
+없으므로 행 길이를 제외하고, 아이콘 크기 지정에 사용하는 `img`만 HTML로 허용합니다.
+이외의 기본 규칙은 유지합니다. 제목·본문·링크를 실제 Markdown 미리보기에서도 확인해
+강조용 별표가 그대로 표시되는 등의 렌더링 문제를 점검합니다.

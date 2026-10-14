@@ -1,6 +1,11 @@
-<img src="docs/assets/branding/heiccy-app-icon.png" alt="heiccy 앱 아이콘" width="96" height="96" />
-
 # heiccy
+
+<img
+  src="docs/assets/branding/heiccy-app-icon.png"
+  alt="heiccy 앱 아이콘"
+  width="96"
+  height="96"
+/>
 
 [한국어](README.md) · [English](README.en.md)
 
@@ -13,7 +18,7 @@
 >
 > 변환은 헤이키에게.
 
-**heiccy(헤이키)**는 복사한 HEIC를 JPEG·PNG로 자동 변환해 **⌘V**로 붙여넣을 수
+**heiccy**(헤이키)는 복사한 HEIC를 JPEG·PNG로 자동 변환해 **⌘V**로 붙여넣을 수
 있도록 준비하는 macOS 메뉴바 앱입니다. 사진은 내 컴퓨터에서 처리하고 원본 파일은
 변경하지 않습니다. 앱에 Python 런타임과 코덱이 포함되어 있어 Python을 따로 설치할
 필요가 없습니다.

@@ -13,7 +13,8 @@ The Python package name is **heic-converter-tui** and its installed command is
 - Choose English or Korean in the interactive TUI.
 - Adjust JPEG quality, PNG compression, metadata handling, and file conflicts.
 - Include subdirectories while preserving their relative output paths.
-- Apply image orientation; preserve PNG transparency and composite JPEG alpha on white.
+- Apply image orientation; preserve PNG transparency and composite JPEG alpha
+  on white.
 - Preserve supported Apple HDR gain maps in 16-bit PNG on macOS 15 or later.
 
 ## Supported environment

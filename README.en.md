@@ -1,6 +1,11 @@
-<img src="docs/assets/branding/heiccy-app-icon.png" alt="heiccy app icon" width="96" height="96" />
-
 # heiccy
+
+<img
+  src="docs/assets/branding/heiccy-app-icon.png"
+  alt="heiccy app icon"
+  width="96"
+  height="96"
+/>
 
 [한국어](README.md) · [English](README.en.md)
 
@@ -12,7 +17,8 @@
 > HEIC to JPEG or PNG, automatically.
 
 **heiccy** is a macOS menu bar app that converts supported HEIC clipboard images
-into JPEG or PNG, ready to paste with **Command-V**. Photos are processed on your
+into JPEG or PNG, ready to paste with **Command-V**. Photos are processed on
+your
 computer and source files remain unchanged. The app includes its Python runtime
 and codecs, so you do not need to install Python separately.
 
@@ -33,11 +39,13 @@ A DMG is available only after its release has been published.
 
 ### DMG download and installation
 
-The app's distribution destination is [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases).
+The app's distribution destination is
+[GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases).
 Download the DMG and checksum from the same published release. Until that
 release is available, these steps apply to a build made from source:
 
-1. Obtain the DMG and its matching `.sha256` file from the same build or release.
+1. Obtain the DMG and its matching `.sha256` file from the same build or
+   release.
 2. In the directory containing both files, verify the checksum:
 
    ```bash
@@ -47,24 +55,29 @@ release is available, these steps apply to a build made from source:
 3. Open the DMG and drag **heiccy.app** to **Applications**.
 4. Open **heiccy** from Applications; its icon appears in the menu bar.
 
-Current builds use ad-hoc signing and are not notarized. If macOS blocks the first
+Current builds use ad-hoc signing and are not notarized. If macOS blocks the
+first
 launch, follow [Apple's instructions](https://support.apple.com/102445).
 
 ### Replacing an earlier app build
 
-The new filename does not replace an existing `HEIC Converter.app` automatically.
-Quit the earlier app from its menu bar menu before installing `heiccy.app`, so it
+The new filename does not replace an existing `HEIC Converter.app`
+automatically.
+Quit the earlier app from its menu bar menu before installing `heiccy.app`, so
+it
 can restore any clipboard data it published. Keep the earlier bundle outside
 Applications as a backup, then install and open `heiccy.app` explicitly. Do not
 run both copies together. If you return to the earlier build, quit heiccy first.
 
-The bundle identifier and settings key are unchanged, so saved conversion options
+The bundle identifier and settings key are unchanged, so saved conversion
+options
 and legacy output paths remain available. Pause is session-only; automatic
 conversion starts enabled on the next launch.
 
 ### Build the app from source
 
-See the [app build and release guide](docs/build.md) (in Korean) to build from source.
+See the [app build and release guide](docs/build.md) (in Korean) to build from
+source.
 
 ## Using heiccy
 
@@ -85,16 +98,19 @@ session; conversion options persist. The panel closes when focus moves away.
 Copy detection does not open it, and the app keeps no clipboard history.
 
 The default output is JPEG at quality 90. PNG compression defaults to 6 and the
-metadata policy is `safe`, which removes GPS and XMP where supported. On macOS 15+
+metadata policy is `safe`, which removes GPS and XMP where supported. On macOS
+15+
 with supported Apple HDR gain maps, PNG output can preserve HDR in 16-bit form;
 JPEG output is SDR. HDR conversion depends on the source and ImageIO support.
 
 ### Supported input and clipboard safety
 
-- Readable local regular `.heic` file URLs and raw `public.heic` data are supported.
+- Readable local regular `.heic` file URLs and raw `public.heic` data are
+  supported.
 - Non-HEIC items retain their order and preservable clipboard representations.
   Results are published only after every HEIC conversion succeeds and the
-  clipboard still contains the same copy. A newer copy cancels stale publication.
+  clipboard still contains the same copy. A newer copy cancels stale
+  publication.
 - Files referenced by converted clipboard items are temporary. Source files are
   unchanged. Normal quit restores the original clipboard when it still contains
   the app's results; recovery after an abnormal exit is not guaranteed.
@@ -114,7 +130,8 @@ receiving-app limitations. Report user-facing bugs in
 [![Python package downloads](https://api.pepy.tech/personalized-badge/heic-converter-tui?period=month&units=none&left_color=grey&right_color=blue&left_text=downloads%2Fmonth)](https://pepy.tech/projects/heic-converter-tui)
 [![Python](https://img.shields.io/badge/Python-%E2%89%A53.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
-The [PyPI package](https://pypi.org/project/heic-converter-tui/) is the directory
+The [PyPI package](https://pypi.org/project/heic-converter-tui/) is the
+directory
 converter for terminal users. Its distribution name remains `heic-converter-tui`
 and its command remains `heic-converter`; installing it does not install the
 standalone macOS app.
@@ -193,7 +210,8 @@ the command returns exit code `130`.
 
 ### Run from the command line
 
-Specify an output format when running from a script or non-interactive environment.
+Specify an output format when running from a script or non-interactive
+environment.
 
 ```bash
 # Convert HEIC files directly inside input to JPEG.
@@ -229,7 +247,6 @@ pipx upgrade heic-converter-tui
 pipx uninstall heic-converter-tui
 ```
 
-
 ## 📚 Behavior and options
 
 ### Command format
@@ -239,7 +256,8 @@ heic-converter --input INPUT --output OUTPUT --format {jpeg,png} [OPTIONS]
 ```
 
 `--input` and `--output` are directory paths. They default to `./input` and
-`./output`, respectively. They cannot refer to the same directory, and single-file
+`./output`, respectively. They cannot refer to the same directory, and
+single-file
 input is not supported.
 
 | Option | Description | Default |
@@ -254,7 +272,8 @@ input is not supported.
 | `--on-conflict {rename,skip,overwrite,error}` | Output conflict policy | `rename` |
 
 JPEG output uses the `.jpeg` extension, while PNG output uses `.png`.
-The TUI offers practical quality and compression presets; the CLI accepts any valid
+The TUI offers practical quality and compression presets; the CLI accepts any
+valid
 value within the ranges above.
 
 ### Metadata and image handling
@@ -266,14 +285,18 @@ value within the ranges above.
 | `strip` | Removes EXIF and XMP. HDR PNG retains its ICC profile or CICP color signaling required for correct rendering. |
 
 The converter applies image orientation to pixels and, when metadata is written,
-normalizes the output EXIF orientation value to `1`. JPEG does not support alpha,
+normalizes the output EXIF orientation value to `1`. JPEG does not support
+alpha,
 so transparent pixels are composited on white; PNG keeps alpha channels.
 
 On macOS 15 or later, HEIC images with an Apple HDR gain map are converted to
 16-bit HDR PNG with an HDR color profile. The native HDR path selects the HEIC's
-primary image even when its index is not zero; a generated multi-image HEIC verifies
-the nonzero primary index, 16-bit PQ output, and metadata policies. This preserves
-the source image's HDR brightness and color appearance on compatible displays. Other environments
+primary image even when its index is not zero; a generated multi-image HEIC
+verifies
+the nonzero primary index, 16-bit PQ output, and metadata policies. This
+preserves
+the source image's HDR brightness and color appearance on compatible displays.
+Other environments
 save the base SDR image, which may look different from the HEIC on an HDR
 display. JPEG output is SDR. App results report whether HDR was applied and the
 reason for SDR fallback. HDR preservation depends on the source gain map and
@@ -283,14 +306,21 @@ compression.
 
 ### File discovery and conflict handling
 
-- Only files with a case-insensitive `.heic` extension are processed; `.heif` is not supported.
-- By default, only files directly in the input directory are considered. `--recursive` includes subdirectories and preserves their relative layout in the output directory.
-- If the output directory is inside the input directory, its tree is excluded from discovery.
-- `rename` deterministically chooses an available filename such as `photo.jpeg`, `photo-2.jpeg`, or `photo-3.jpeg`.
+- Only files with a case-insensitive `.heic` extension are processed; `.heif` is
+  not supported.
+- By default, only files directly in the input directory are considered.
+  `--recursive` includes subdirectories and preserves their relative layout in
+  the output directory.
+- If the output directory is inside the input directory, its tree is excluded
+  from discovery.
+- `rename` deterministically chooses an available filename such as `photo.jpeg`,
+  `photo-2.jpeg`, or `photo-3.jpeg`.
 - `skip` leaves the existing output file untouched and skips that input.
 - `overwrite` replaces an existing output file.
-- `error` records the conflicting file as a failure and continues with the next input.
-- Files are first completed in a temporary file inside the output directory, so incomplete output files are not exposed.
+- `error` records the conflicting file as a failure and continues with the next
+  input.
+- Files are first completed in a temporary file inside the output directory, so
+  incomplete output files are not exposed.
 
 ### Supported scope
 
@@ -300,7 +330,8 @@ JPEG or PNG. It does not support:
 - PDF or HWP/HWPX conversion
 - OCR or text extraction
 - Live Photo video processing
-- Extracting auxiliary images, sequences, or video instead of the primary still image
+- Extracting auxiliary images, sequences, or video instead of the primary still
+  image
 - Single-file input through the CLI (the app uses clipboard input)
 
 ### Exit codes
@@ -314,18 +345,22 @@ JPEG or PNG. It does not support:
 
 ## Releases and documentation
 
-The macOS app is distributed through [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases),
+The macOS app is distributed through
+[GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases),
 and the CLI/TUI through [PyPI](https://pypi.org/project/heic-converter-tui/).
 Their versions and release schedules are independent.
 
 - [Clipboard compatibility and supported inputs](docs/compatibility.md) (Korean)
 - [App build and release guide](docs/build.md) (Korean)
 - [Release notes](docs/releases/v1.0.0.md) (Korean)
-- [Third-party components and corresponding sources](docs/third-party-sources.md) (Korean)
+- [Third-party components and corresponding sources](docs/third-party-sources.md)
+  (Korean)
 - [Report a bug or suggest a feature](https://github.com/jaehunshin-git/heiccy/issues)
 
-Automatic app updates, Intel support, Homebrew Cask, and Mac App Store distribution
-are not available. Quit the app normally before replacing it with a newer DMG build.
+Automatic app updates, Intel support, Homebrew Cask, and Mac App Store
+distribution
+are not available. Quit the app normally before replacing it with a newer DMG
+build.
 
 ## License
 

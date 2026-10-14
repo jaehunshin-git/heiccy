@@ -56,9 +56,6 @@ def artifacts(tmp_path, validator):
         directory.mkdir()
         # OS별 DMG 해시가 달라도 성공해야 한다. 게시 대상은 반드시 15 원본이다.
         write_asset(directory / f"heiccy-{VERSION}-arm64.dmg", runner.encode())
-        write_asset(
-            directory / f"heiccy-codec-sources-{VERSION}.tar.gz", b"codec fixture"
-        )
         validator.create_manifest(
             directory,
             plist,
@@ -99,17 +96,20 @@ def test_two_os_pass_selects_identical_macos_15_files(validator, artifacts):
     result = verify(validator, artifacts)
     assert result["public_tag"] == "macos-v1.0.0"
     assert Path(result["dmg"]).read_bytes() == b"macos-15"
-    assert Path(result["codec_sources"]).name == "heiccy-codec-sources-1.0.0.tar.gz"
+    assert set(result) == {
+        "version", "public_tag", "dmg", "checksum", "manifest_15", "manifest_26"
+    }
+    manifest = json.loads(manifest_path(artifacts).read_text())
+    assert manifest["schema_version"] == 2
+    assert manifest["engine"] == "swift-imageio"
+    assert "codec_sources" not in manifest
     assert Path(result["manifest_26"]) == manifest_path(artifacts, "macos-26")
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 
 @pytest.mark.parametrize("runner", ["macos-15", "macos-26"])
-@pytest.mark.parametrize(
-    "name", ["heiccy-1.0.0-arm64.dmg", "heiccy-codec-sources-1.0.0.tar.gz"]
-)
-def test_tampered_assets_fail_for_either_os(validator, artifacts, runner, name):
-    (artifacts[0][runner] / name).write_bytes(b"tampered")
+def test_tampered_assets_fail_for_either_os(validator, artifacts, runner):
+    (artifacts[0][runner] / "heiccy-1.0.0-arm64.dmg").write_bytes(b"tampered")
     with pytest.raises(ValueError, match="SHA-256 불일치"):
         verify(validator, artifacts)
 
@@ -164,7 +164,10 @@ def test_different_source_or_ci_run_rejected(validator, artifacts, field, value)
     "path,value",
     [
         (("schema_version",), True),
-        (("schema_version",), 2),
+        (("schema_version",), 1),
+        (("schema_version",), 3),
+        (("engine",), "python-pillow"),
+        (("engine",), None),
         (("app_version",), "0.3.0"),
         (("app_version",), "01.0.0"),
         (("source_commit",), "short"),
@@ -178,8 +181,6 @@ def test_different_source_or_ci_run_rejected(validator, artifacts, field, value)
         (("artifact", "name"), "../heiccy-1.0.0-arm64.dmg"),
         (("artifact", "name"), "heiccy-0.3.0-arm64.dmg"),
         (("artifact", "sha256"), "g" * 64),
-        (("codec_sources", "name"), "heiccy-codec-sources-0.3.0.tar.gz"),
-        (("codec_sources", "sha256"), 123),
         (("provenance", "runner"), "macos-26"),
         (("provenance", "architecture"), "x86_64"),
         (("provenance", "workflow"), ".github/workflows/other.yml"),
@@ -208,7 +209,7 @@ def test_malformed_json_rejected(validator, artifacts, contents):
         verify(validator, artifacts)
 
 
-@pytest.mark.parametrize("field", ["source_commit", "codec_sources", "provenance"])
+@pytest.mark.parametrize("field", ["engine", "source_commit", "provenance"])
 def test_missing_manifest_fields_rejected(validator, artifacts, field):
     target = manifest_path(artifacts)
     manifest = json.loads(target.read_text())
@@ -229,11 +230,20 @@ def test_missing_second_os_fails(validator, artifacts):
 
 
 @pytest.mark.parametrize(
-    "extra", ["extra.dmg", "extra.dmg.sha256", "heiccy-codec-sources-2.0.0.tar.gz"]
+    "extra", ["extra.dmg", "extra.dmg.sha256"]
 )
 def test_ambiguous_asset_names_fail(validator, artifacts, extra):
     (artifacts[0]["macos-15"] / extra).write_bytes(b"extra")
     with pytest.raises(ValueError, match="중복"):
+        verify(validator, artifacts)
+
+
+@pytest.mark.parametrize("runner", ["macos-15", "macos-26"])
+@pytest.mark.parametrize("suffix", [".tar.gz", ".tar.gz.sha256"])
+def test_native_release_rejects_stale_codec_assets(validator, artifacts, runner, suffix):
+    stale = artifacts[0][runner] / f"heiccy-codec-sources-{VERSION}{suffix}"
+    stale.write_bytes(b"obsolete codec distribution")
+    with pytest.raises(ValueError, match="코덱 소스 산출물"):
         verify(validator, artifacts)
 
 
@@ -330,6 +340,9 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
     )
     assert result.returncode == 0, result.stderr
     data = json.loads(record.read_text())
+    assert data["schema_version"] == 2
+    assert data["engine"] == "swift-imageio"
+    assert all(manifest["engine"] == "swift-imageio" for manifest in data["build_manifests"])
     assert data["source_commit"] == SHA
     assert data["public_source_commit"] == SHA
     assert data["public_repository"] == "jaehunshin-git/heiccy"
@@ -561,8 +574,6 @@ def test_draft_creation_uses_existing_tag_and_same_commit(
     for field in (
         "DMG",
         "CHECKSUM",
-        "CODEC_SOURCES",
-        "CODEC_CHECKSUM",
         "MANIFEST_15",
         "MANIFEST_26",
     ):
@@ -584,4 +595,7 @@ def test_draft_creation_uses_existing_tag_and_same_commit(
     assert command[command.index("--target") + 1] == SHA
     assert "--draft" in command and "--verify-tag" in command
     assert "--clobber" not in command
-    assert "fixture DMG" in command and "fixture CODEC_SOURCES" in command
+    assert "fixture DMG" in command and "fixture CHECKSUM" in command
+    assert not any("CODEC" in argument for argument in command)
+    assert "codec_sources" not in workflow and "codec_checksum" not in workflow
+    assert "collect_codec_sources.py" not in workflow

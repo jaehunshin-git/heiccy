@@ -12,13 +12,13 @@ from pillow_heif import from_pillow
 
 
 def synthetic_hdr(directory: Path) -> Path:
-    """합성 SDR 및 Apple 게인 맵으로 실제 PyObjC HDR 경로를 검사합니다."""
+    """합성 SDR 및 Apple 게인 맵으로 실제 네이티브 HDR 경로를 검사합니다."""
     import Quartz as quartz
     from Foundation import NSURL
 
     base = directory / "hdr-base.png"
     exif = Image.Exif()
-    exif[34853] = {1: "N", 2: (37, 1)}
+    exif[34853] = {1: "N", 2: (37, 0, 0), 3: "E", 4: (127, 0, 0)}
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     Image.new("RGB", (256, 256), (60, 100, 180)).save(
         base,

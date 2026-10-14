@@ -34,7 +34,9 @@ baseline `77908397ffb24dc1881ea1f0ebfc5d9d9c977852`의 Git blob을 검증합니�
 
 새 manifest의 `source_repository`는 `jaehunshin-git/heiccy`, `source_commit`은 실제 공개 빌드 SHA입니다.
 provenance는 `.github/workflows/macos.yml`과 해당 Actions 실행을 가리켜야 합니다.
-macOS 15·26 manifest는 같은 공개 저장소·같은 SHA·같은 실행을 기록하고 DMG·체크섬·대응 코덱 소스의 해시를 검증합니다.
+macOS 15·26 manifest는 같은 공개 저장소·같은 SHA·같은 실행을 기록하고 DMG·체크섬의 해시를 검증합니다.
+앱은 Swift worker와 macOS Image I/O·Core Image·시스템 zlib을 사용하며 Python·외부 코덱을 포함하지 않습니다.
+네이티브 앱 manifest는 스키마 2와 `engine: swift-imageio`를 사용하며 과거 Python 앱의 스키마 1·코덱 소스 산출물과 혼합하지 않습니다.
 두 OS의 DMG 바이트가 같을 필요는 없으며 게시 파일은 선택한 macOS 15 산출물의 SHA-256과 일치해야 합니다.
 manifest는 서명된 증명서가 아니며 초기 `SOURCE.json`을 대체하지 않습니다.
 

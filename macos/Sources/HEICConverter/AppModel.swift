@@ -177,7 +177,7 @@ struct ClipboardConversionNotice: Equatable, Identifiable {
             if clipboardEnabled, heicCount > 0 {
                 conversionNotice = ClipboardConversionNotice(id: UUID(), sourceChangeCount: count,
                     copiedFileCount: previewFiles.count, heicCount: heicCount, phase: .failed,
-                    completedCount: 0, detail: "HEIC를 읽을 수 없습니다. 전체 원본을 유지했습니다.")
+                    completedCount: 0, detail: "\(error.localizedDescription) 전체 원본을 유지했습니다.")
             }
         }
     }

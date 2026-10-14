@@ -62,7 +62,8 @@ python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 �
 
 - 앱 태그는 `macos-vVERSION`, PyPI 태그는 `pypi-vVERSION`이며 버전과 배포 시점은 독립적이다. 과거 문서의 앱 `vVERSION` 표기는 이전 snapshot 배포 방식이며, 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었다.
 - `SOURCE.json`은 초기 공개 snapshot 기록으로 불변이다. baseline `77908397ffb24dc1881ea1f0ebfc5d9d9c977852`의 Git blob 기준 검증을 사용하며 현재 작업 트리 해시로 갱신하지 않는다.
-- 새 release manifest는 같은 공개 저장소의 같은 빌드 SHA와 `.github/workflows/macos.yml` 실행 및 산출물 해시를 기록한다. 초기 snapshot의 private SHA를 새 빌드 출처로 쓰지 않는다.
+- 앱은 Swift 네이티브 worker와 macOS Image I/O·Core Image·시스템 zlib을 사용한다. Python 런타임·Pillow·외부 코덱을 앱에 포함하지 않는다. Python 환경은 빌드 검증·CLI/TUI에만 사용하며 PyPI 구현은 유지한다.
+- 새 release manifest는 스키마 2와 `engine: swift-imageio`를 사용하며 같은 공개 저장소의 같은 빌드 SHA와 `.github/workflows/macos.yml` 실행 및 산출물 해시를 기록한다. 초기 snapshot의 private SHA를 새 빌드 출처로 쓰지 않는다.
 - draft release는 기본 disabled다. `HEICCY_RELEASE_ENABLED`, `public-release` environment와 해당 job의 `contents: write` 권한을 가진 `github.token`을 사용하며 PAT를 도입하지 않는다. 태그 생성·push와 실제 릴리스 동작은 별도 승인 후 수행한다.
 - Developer ID 서명·Apple 공증은 기존 미적용 상태를 유지해 기록한다. 빌드 성공을 실기·공개 다운로드 검증 완료로 보고하지 않는다.
 - 구현 요구, 로컬 검증 결과, GitHub 실기/e2e의 pending을 구분한다. 기여 절차는 [기여 안내](CONTRIBUTING.md), 세부 운영 계약과 플랫폼 한계는 [저장소 운영](docs/repository-operations.md)을 따른다.

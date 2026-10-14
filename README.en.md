@@ -16,26 +16,54 @@
 
 > HEIC to JPEG or PNG, automatically.
 
-**heiccy** is a macOS menu bar app that converts supported HEIC clipboard images
-into JPEG or PNG, ready to paste with **Command-V**. Photos are processed on
-your
-computer and source files remain unchanged. The app includes its Python runtime
-and codecs, so you do not need to install Python separately.
+**heiccy** is a macOS menu bar app that converts copied HEIC images into JPEG or
+PNG, ready to paste with **Command-V**. Copy a supported photo in Photos or a
+HEIC file in Finder. Images are processed on your computer and source files
+remain unchanged.
 
-The same repository provides a CLI and an arrow-key TUI for directory conversion
-and scripts. See [CLI/TUI](#clitui) for Python package installation and
-[README.md](README.md) for Korean documentation.
+Both the app and its conversion engine are written in Swift and use native
+macOS image APIs. The app bundles no Python runtime or external codecs, and you
+do not need to install them separately.
 
 **Release status:** Version 1.0.0 is being prepared. The official download entry
 point is [heiccy Releases](https://github.com/jaehunshin-git/heiccy/releases).
 A DMG is available only after its release has been published.
+
+## Features
+
+| Feature | Description |
+| --- | --- |
+| Automatic conversion after copying | Copy a supported HEIC photo in Photos or a local HEIC file in Finder, then paste after conversion completes. |
+| JPEG and PNG output | Choose JPEG quality and PNG compression; supported photos can produce 16-bit HDR PNG. |
+| Metadata policies | Remove GPS and XMP by default, retain original metadata, or remove EXIF and XMP. |
+| Local processing | No photo uploads, source-file changes, or clipboard history. |
+
+### App and CLI/TUI
+
+The same repository also provides a Python CLI and an arrow-key TUI for batch
+directory conversion and scripts. Choose the installation for your workflow.
+Their versions and release schedules are independent.
+
+| Product | Workflow | Installation |
+| --- | --- | --- |
+| heiccy macOS app | Copy in Photos/Finder → automatic conversion → paste | DMG; no Python required |
+| CLI/TUI | Convert directories in a terminal or script | [PyPI package](#clitui); Python 3.11 or later required |
+
+## Technology stack
+
+| Category | Technology |
+| --- | --- |
+| App | Swift, SwiftUI, AppKit |
+| Conversion | macOS Image I/O, Core Image |
+| Compression | macOS system zlib |
+| CLI/TUI | Python, Pillow, pillow-heif |
 
 ## macOS app installation
 
 ### Requirements
 
 - Apple Silicon Mac (arm64), macOS 15 or later
-- No separate Python installation required to run the packaged app
+- No Python, Pillow, or additional codec installation required
 
 ### DMG download and installation
 
@@ -56,23 +84,20 @@ release is available, these steps apply to a build made from source:
 4. Open **heiccy** from Applications; its icon appears in the menu bar.
 
 Current builds use ad-hoc signing and are not notarized. If macOS blocks the
-first
-launch, follow [Apple's instructions](https://support.apple.com/102445).
+first launch, follow [Apple's instructions](https://support.apple.com/102445).
 
 ### Replacing an earlier app build
 
 The new filename does not replace an existing `HEIC Converter.app`
-automatically.
-Quit the earlier app from its menu bar menu before installing `heiccy.app`, so
-it
-can restore any clipboard data it published. Keep the earlier bundle outside
-Applications as a backup, then install and open `heiccy.app` explicitly. Do not
-run both copies together. If you return to the earlier build, quit heiccy first.
+automatically. Quit the earlier app from its menu bar menu before installing
+`heiccy.app`, so it can restore any clipboard data it published. Keep the earlier
+bundle outside Applications as a backup, then install and open `heiccy.app`
+explicitly. Do not run both copies together. If you return to the earlier build,
+quit heiccy first.
 
 The bundle identifier and settings key are unchanged, so saved conversion
-options
-and legacy output paths remain available. Pause is session-only; automatic
-conversion starts enabled on the next launch.
+options and legacy output paths remain available. Pause is session-only;
+automatic conversion starts enabled on the next launch.
 
 ### Build the app from source
 
@@ -81,7 +106,8 @@ source.
 
 ## Using heiccy
 
-1. Copy a supported local HEIC file in Finder, or supported raw HEIC image data.
+1. Copy a supported HEIC photo directly from Photos or a local HEIC file in
+   Finder. Supported Photos input needs no export.
 2. Wait for the conversion-complete notice. Pasting before completion may paste
    the original image.
 3. Paste with **Command-V** in the receiving app.
@@ -97,28 +123,46 @@ Automatic conversion starts enabled on each launch. Pause lasts for the current
 session; conversion options persist. The panel closes when focus moves away.
 Copy detection does not open it, and the app keeps no clipboard history.
 
-The default output is JPEG at quality 90. PNG compression defaults to 6 and the
-metadata policy is `safe`, which removes GPS and XMP where supported. On macOS
-15+
-with supported Apple HDR gain maps, PNG output can preserve HDR in 16-bit form;
-JPEG output is SDR. HDR conversion depends on the source and ImageIO support.
+### Conversion settings
+
+| Setting | Behavior | Default |
+| --- | --- | --- |
+| Output format | JPEG or PNG | JPEG |
+| JPEG quality | Low 60 · Medium 80 · High 90 · Raw 100. Raw is still lossy JPEG. | High 90 |
+| PNG compression | Presets within levels 0–9. Quality stays the same; conversion time and file size vary. Applies to both SDR and HDR PNG. | 6 |
+| Metadata | Safe (`safe`), preserve all (`preserve`), or remove (`strip`) | Safe |
+
+Safe removes GPS and XMP while retaining other EXIF data where supported.
+Preserve all retains EXIF, including GPS, and XMP where supported. Remove
+excludes EXIF and XMP. All policies retain color profiles needed for color
+reproduction.
+
+Photos with a supported Apple HDR gain map that need no orientation correction
+can produce 16-bit HDR PNG. Other PNG output and all JPEG output use SDR. HDR
+preservation depends on the source and macOS support. Image orientation is
+applied to pixels; PNG retains transparency, while JPEG fills it with white.
 
 ### Supported input and clipboard safety
 
-- Readable local regular `.heic` file URLs and raw `public.heic` data are
-  supported.
-- Non-HEIC items retain their order and preservable clipboard representations.
-  Results are published only after every HEIC conversion succeeds and the
-  clipboard still contains the same copy. A newer copy cancels stale
-  publication.
-- Files referenced by converted clipboard items are temporary. Source files are
-  unchanged. Normal quit restores the original clipboard when it still contains
-  the app's results; recovery after an abnormal exit is not guaranteed.
-- File promises, offline files, and Photos asset references combined with file
-  URLs inside a `.photoslibrary` are unsupported. Export an unmodified original
-  and copy it from Finder for the file workflow. Videos are excluded.
-- Receiving apps choose which clipboard representations to accept; pasting every
-  item in every app is not guaranteed.
+- Supports HEIC image data supplied by Photos on the clipboard and readable
+  local `.heic` files. The app does not read or modify Photos library files
+  directly.
+- A Photos copy without usable original HEIC data cannot be converted. Try
+  copying a photo whose original has downloaded to your Mac. If that still
+  fails, export the unmodified original and copy it in Finder.
+- The clipboard is replaced only after every copied HEIC converts successfully.
+  Copying something new during conversion prevents stale results from replacing
+  it. Mixed items retain their order.
+- Normal quit restores the original while the clipboard still contains the
+  app's converted results. Photos input is restored as the original HEIC image,
+  using a temporary original file instead of private Photos references. This
+  does not restore the same Photos asset selection. Recovery after an abnormal
+  exit is not guaranteed.
+- Offline or unreadable files and copy inputs whose files are not yet available
+  are unsupported. Only the primary still image is converted; Live Photo video
+  is not processed. Mixed input that cannot be restored safely leaves the
+  clipboard unchanged.
+- Paste support depends on the receiving app.
 
 See [clipboard compatibility](docs/compatibility.md) for supported inputs and
 receiving-app limitations. Report user-facing bugs in
@@ -130,8 +174,7 @@ receiving-app limitations. Report user-facing bugs in
 [![Python package downloads](https://api.pepy.tech/personalized-badge/heic-converter-tui?period=month&units=none&left_color=grey&right_color=blue&left_text=downloads%2Fmonth)](https://pepy.tech/projects/heic-converter-tui)
 [![Python](https://img.shields.io/badge/Python-%E2%89%A53.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
-The [PyPI package](https://pypi.org/project/heic-converter-tui/) is the
-directory
+The [PyPI package](https://pypi.org/project/heic-converter-tui/) is the directory
 converter for terminal users. Its distribution name remains `heic-converter-tui`
 and its command remains `heic-converter`; installing it does not install the
 standalone macOS app.
@@ -247,7 +290,11 @@ pipx upgrade heic-converter-tui
 pipx uninstall heic-converter-tui
 ```
 
-## 📚 Behavior and options
+## CLI/TUI behavior and options
+
+The options and file-handling rules below apply to the Python package's
+`heic-converter` command. See [conversion settings](#conversion-settings) for
+the macOS app.
 
 ### Command format
 
@@ -257,8 +304,7 @@ heic-converter --input INPUT --output OUTPUT --format {jpeg,png} [OPTIONS]
 
 `--input` and `--output` are directory paths. They default to `./input` and
 `./output`, respectively. They cannot refer to the same directory, and
-single-file
-input is not supported.
+single-file input is not supported.
 
 | Option | Description | Default |
 | --- | --- | --- |
@@ -273,8 +319,7 @@ input is not supported.
 
 JPEG output uses the `.jpeg` extension, while PNG output uses `.png`.
 The TUI offers practical quality and compression presets; the CLI accepts any
-valid
-value within the ranges above.
+valid value within the ranges above.
 
 ### Metadata and image handling
 
@@ -282,27 +327,18 @@ value within the ranges above.
 | --- | --- |
 | `safe` | Removes GPS and XMP while retaining other EXIF data and ICC profiles where possible. |
 | `preserve` | Retains EXIF, XMP, and ICC profiles where supported by the conversion libraries. |
-| `strip` | Removes EXIF and XMP. HDR PNG retains its ICC profile or CICP color signaling required for correct rendering. |
+| `strip` | Removes EXIF, XMP, and SDR color profiles. Retains ICC or CICP information needed for HDR PNG. |
 
 The converter applies image orientation to pixels and, when metadata is written,
 normalizes the output EXIF orientation value to `1`. JPEG does not support
-alpha,
-so transparent pixels are composited on white; PNG keeps alpha channels.
+alpha, so transparent pixels are composited on white; PNG keeps alpha channels.
 
-On macOS 15 or later, HEIC images with an Apple HDR gain map are converted to
-16-bit HDR PNG with an HDR color profile. The native HDR path selects the HEIC's
-primary image even when its index is not zero; a generated multi-image HEIC
-verifies
-the nonzero primary index, 16-bit PQ output, and metadata policies. This
-preserves
-the source image's HDR brightness and color appearance on compatible displays.
-Other environments
-save the base SDR image, which may look different from the HEIC on an HDR
-display. JPEG output is SDR. App results report whether HDR was applied and the
-reason for SDR fallback. HDR preservation depends on the source gain map and
-available ImageIO APIs; it is not guaranteed for every HEIC. PNG compression
-level applies to the Pillow SDR path; the native HDR encoder controls its own
-compression.
+On macOS 15 or later, images with a supported Apple HDR gain map that need no
+orientation correction can produce 16-bit HDR PNG. Other cases use the base SDR
+image, which may look different from the HEIC on an HDR display. JPEG output is
+SDR. The Python CLI/TUI's PNG compression setting applies to Pillow's SDR path;
+its HDR path uses the macOS encoder's compression. The app's PNG compression
+setting applies to both SDR and HDR output.
 
 ### File discovery and conflict handling
 
@@ -332,7 +368,7 @@ JPEG or PNG. It does not support:
 - Live Photo video processing
 - Extracting auxiliary images, sequences, or video instead of the primary still
   image
-- Single-file input through the CLI (the app uses clipboard input)
+- Single-file input
 
 ### Exit codes
 
@@ -353,18 +389,17 @@ Their versions and release schedules are independent.
 - [Clipboard compatibility and supported inputs](docs/compatibility.md) (Korean)
 - [App build and release guide](docs/build.md) (Korean)
 - [Release notes](docs/releases/v1.0.0.md) (Korean)
-- [Third-party components and corresponding sources](docs/third-party-sources.md)
+- [Native app composition and licenses](docs/third-party-sources.md)
   (Korean)
 - [Report a bug or suggest a feature](https://github.com/jaehunshin-git/heiccy/issues)
 
 Automatic app updates, Intel support, Homebrew Cask, and Mac App Store
-distribution
-are not available. Quit the app normally before replacing it with a newer DMG
-build.
+distribution are not available. Quit the app normally before replacing it with
+a newer DMG build.
 
 ## License
 
 This project is distributed under the [MIT License](LICENSE).
-Bundled third-party components retain their own licenses, including the codec
-notices shipped with pillow-heif. See the app's
-`Contents/Resources/Licenses` for the Python runtime and library notices.
+The app uses native macOS image APIs and bundles no Python runtime or external
+codecs. See `Contents/Resources/Licenses` for the MIT license and app composition
+notice. Dependencies of the separate Python CLI/TUI retain their own licenses.

@@ -10,7 +10,7 @@
 - Apple Silicon arm64, macOS 15 이상
 - macOS SDK를 포함한 Xcode 또는 Command Line Tools
 - 테스트 실행에는 XCTest를 포함한 Xcode
-- `uv` 0.11.11, 앱 worker Python 3.12.12
+- `uv` 0.11.11, 빌드·검증용 Python 3.12.12
 
 ```bash
 uv sync --group dev
@@ -24,7 +24,9 @@ bash packaging/macos/build.sh
 빌드는 로그인된 GUI 세션에서 실행합니다. worker와 패널·DMG 설치본 검증을
 수행하므로 실행 중 Finder가 열리거나 앱 포커스가 바뀔 수 있습니다.
 의존성은 `packaging/macos/requirements.lock`의 버전과 해시로 고정합니다.
-실행 앱은 사용자의 Python·Homebrew·uv·pip에 의존하지 않습니다.
+앱 화면과 worker는 Swift로 빌드하며 macOS Image I/O와 시스템 zlib을 사용합니다.
+Python은 아이콘 생성·합성 사진 테스트·CLI 검증 등 빌드 도구에만 사용합니다.
+앱에 Python 런타임·Pillow·외부 코덱을 포함하지 않습니다.
 
 소스 기여자는 `bash scripts/install_git_hooks.sh`로 커밋 메시지 검사 훅을
 설치할 수 있습니다. 규칙·기존 훅 설정·해제 방법은
@@ -69,10 +71,19 @@ SHA를 macOS 15·26에서 검증하고 macOS 15의 DMG를 게시 대상으로 �
 Developer ID 도입에는 Apple Developer Program, Developer ID Application 인증서,
 공증 인증 정보와 hardened runtime·번들 의존성 재검증이 필요합니다.
 
-프로젝트 소스는 MIT이며, 내장 Python·라이브러리·코덱은 각각의 라이선스를
-따릅니다. 앱의 `Contents/Resources/Licenses`에 전문과 고지가 포함됩니다.
-pillow-heif 바이너리 wheel에는 GPL/LGPL 구성 요소가 있으므로 DMG 배포 시
-해당 버전의 대응 소스와 빌드 정보 제공 범위를 별도로 확인해야 합니다.
+프로젝트 소스는 MIT입니다. 앱의 `Contents/Resources/Licenses`에 MIT 전문과
+네이티브 구성 고지를 포함합니다. macOS 제공 Image I/O·Core Image·zlib을 사용하고
+별도 Python·코덱을 재배포하지 않습니다. 빌드·검증 환경과 별도 PyPI 패키지의
+의존성은 앱 배포와 구분합니다. [구성 안내](third-party-sources.md)를 참고하세요.
+
+## 네이티브 변환과 저장
+
+JPEG·PNG 변환은 macOS Image I/O를 사용하고 PNG 압축 수준 0~9는 시스템 zlib으로 적용합니다.
+`safe`는 원본 HEIF EXIF 항목만 읽어 GPS·XMP를 제외하며 `preserve`는 가능한 메타데이터를 유지합니다.
+`strip`은 EXIF·XMP를 제거하고 색 재현에 필요한 프로파일은 유지합니다.
+안전한 EXIF 분리가 불가능한 구조는 정보를 섞어 저장하지 않고 해당 파일의 변환 실패로 보고합니다.
+출력 볼륨이 배타적 rename이나 hard link를 모두 지원하지 않으면 비덮어쓰기 저장은 실패합니다.
+기존 파일을 덮어쓰거나 빈 예약 파일을 남기는 방식으로 우회하지 않습니다.
 
 ## Python 패키지
 

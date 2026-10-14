@@ -1,6 +1,6 @@
 ## 📌 Summary
 
-heiccy를 개발·문서·협업·빌드·배포의 단일 원본으로 전환한다. 두 macOS CI와 공개 제출 검증을 준비하고 같은 공개 커밋의 앱 draft 흐름으로 변경했다. 기존 비공개 저장소와 초기 SOURCE.json은 보존했다.
+heiccy를 개발·문서·협업·빌드·배포의 단일 원본으로 전환한다. 두 macOS CI와 공개 제출 검증을 준비하고 같은 공개 커밋의 앱 draft 흐름으로 변경했다. 앱의 변환 엔진을 Swift·macOS Image I/O로 전환했고 Python CLI/TUI는 유지했다. 기존 비공개 저장소와 초기 SOURCE.json은 보존했다.
 
 Closes #1
 
@@ -15,6 +15,8 @@ Closes #1
 - [x] 승인 0명·PR 필수·삭제/force push 금지·우회 없음 main 기본 ruleset 적용
 - [x] 실제 성공 검사에서 strict 필수 검사를 준비하는 도우미 구현
 - [x] README·AGENTS·빌드·독립 배포·Git 훅·운영 한계 문서 정리
+
+- [x] Swift 네이티브 worker, 앱 런타임·외부 코덱 제거와 실제 앱·DMG 검증
 
 ## 🔍 To Reviewer
 
@@ -59,7 +61,7 @@ SOURCE.json은 초기 기록 그대로이며 현재 작업 트리와 일치시�
 
 ## ⚠️ Unverified
 
-- 전체 build.sh는 시작 패널 검사에서 실행 중인 설치 앱 보호 장치에 의해 중단됐다. 기존 앱 정상 종료 허용 또는 사용자 종료 이후 시작 검사를 재실행한다. 별도 DMG 검증 성공이 전체 build.sh 성공을 뜻하지 않는다.
+- 과거 Python 빌드의 시작 패널 대기는 기존 앱 정상 종료와 네이티브 전체 build.sh 성공으로 해소했다. 실제 Photos 직접 복사·JPEG 게시·원본 HEIC 복구는 아래 검증을 완료했으며, 수신 메신저별 붙여넣기는 미검증이다.
 - 외부 fork, PR/이슈 편집 이벤트·UI와 실제 merge 차단은 PR 지시 및 기본 브랜치 반영 이후 확인한다.
 - 실제 macOS 검사 이름을 확인했지만 required status checks·strict 최신화는 아직 미적용이다. 첫 PR에서는 trusted 기본 브랜치 metadata 검사가 unavailable이다.
 - public pull_request_target의 Actions event policy, public-release 보호 설정과 배포 활성화는 아직 검증·설정하지 않았다.
@@ -67,3 +69,34 @@ SOURCE.json은 초기 기록 그대로이며 현재 작업 트리와 일치시�
 
 - 템플릿복원 보완의 변경 범위는 기존 29개에 proposal/fix/docs/init/refactor 5개가 추가된 총 34개이며 동일 baseline에서 최종 변경 파일 34개를 확인했다.
 - 복원 양식과 8종 검사의 원격 기본 브랜치 적용 및 Actions 실기는 pending이다. 작업 브랜치 커밋·push와 이슈 #1의 init 양식 갱신은 추가 지시로 승인됐다. PR 생성·merge는 별도 지시가 필요하며 기존 이슈 일괄 수정·권한 변경은 없다.
+
+
+### 네이티브 앱 전환 검증
+
+Swift 네이티브 worker로 전환해 앱에서 Python 런타임·Pillow·외부 코덱을 제거했다.
+CLI/TUI Python 구현과 PyPI 배포 메타데이터는 유지했다. 새 manifest는 스키마 2와
+`engine: swift-imageio`를 사용한다.
+
+- Swift XCTest 141개, 네이티브 worker 핵심 통합 15개 모두 통과
+- JPEG/PNG·HDR16/PQ·방향·반전·EXIF/GPS/XMP/ICC·알파·압축·취소·충돌·원본 보존 검증 통과
+- 전체 build.sh·새 실행 직후 패널·DMG 체크섬과 임시 설치 복사본 worker/앱 검증 통과
+- 앱 46.35 MB → 2.85 MB, DMG 20.49 MB → 0.92 MB
+- PyPI wheel/sdist·SOURCE baseline·Ruff·actionlint·README 린트·링크 검사 통과
+
+로컬 macOS 27.2 결과이며 네이티브 변경의 macOS 15·26 원격 CI는 미실행이다.
+과거 Python worker 검증을 네이티브 검증으로 사용하지 않는다.
+네이티브 최초 검증 시점에는 기존 설치 앱을 정상 종료했고 교체하지 않았다.
+원격 CI와 PR·merge·배포 상태는 PR 제출 시 다시 확인한다.
+
+
+### Photos 직접 복사 개선
+
+Photos 사진의 raw HEIC와 보관함 URL 조합을 지원한다. 변환 결과에서 Photos 전용 참조를
+제거하고, 정상 종료와 게시 실패 시에는 앱 소유의 원본 HEIC 사본으로 복구한다.
+보관함 URL을 파일·realpath로 조회하지 않고 raw를 우선하며, raw 없는 보관함 입력은
+원본 데이터가 있는 사진을 다시 복사하도록 안내한다. 변환하지 않는 항목은 원문 표현을 유지한다.
+
+현재 로컬에서 실제 Photos 입력의 JPEG 파일·이미지 게시, 별도 프로세스의 이미지 읽기,
+정상 종료 후 원본 HEIC 바이트·파일 복구를 확인했다. 합성 Photos 입력을 포함한 내장
+worker smoke와 전체 앱·DMG 빌드도 통과했다. 최종 Swift 회귀 155개와 Photos 저장소 회귀 38개를 통과했다.
+최종 앱은 2.90 MB, DMG는 0.93 MB다. 수신 메신저별 실제 붙여넣기와 macOS 15·26 원격 CI는 미검증이다.

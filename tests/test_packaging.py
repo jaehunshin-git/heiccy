@@ -1,8 +1,9 @@
-"""배포 메타데이터 언어와 고정 wheel의 코덱 소스 고지를 검증합니다."""
+"""PyPI 배포 메타데이터와 네이티브 앱 패키징을 검증한다."""
 
 import importlib.util
 import io
 import os
+import plistlib
 import subprocess
 import sys
 import tarfile
@@ -100,56 +101,243 @@ def test_archive_entrypoint_rejects_korean_description(
         validator.main()
 
 
-CODEC_INFO = {
-    "libheif": "1.20.2",
-    "HEIF": "x265 HEVC encoder (4.1+1-1d117be)",
-    "AVIF": "",
-    "encoders": {"x265": "x265 HEVC encoder (4.1+1-1d117be)", "mask": "mask"},
-    "decoders": {"libde265": "libde265 HEVC decoder, version 1.0.16"},
-}
+def test_native_notices_need_no_installed_runtime_packages(tmp_path, monkeypatch):
+    import importlib.metadata
+
+    def unexpected_lookup(*args, **kwargs):
+        raise AssertionError("앱 고지 생성에 Python 패키지 조회가 필요하면 안 됩니다.")
+
+    monkeypatch.setattr(importlib.metadata, "distribution", unexpected_lookup)
+    destination = tmp_path / "Licenses"
+    licenses.collect(destination)
+    assert {path.name for path in destination.iterdir()} == {
+        "HEIC-Converter-MIT.txt", "THIRD-PARTY-NOTICES.txt"
+    }
+    assert (destination / licenses.PROJECT_LICENSE).read_bytes() == (
+        ROOT / "LICENSE"
+    ).read_bytes()
+    contents = (destination / licenses.NOTICE_FILE).read_text(encoding="utf-8")
+    assert contents == licenses.NATIVE_NOTICE
+    assert "MIT License" in contents and "Apple 시스템 프레임워크" in contents
+    assert "ImageIO" in contents and "CoreGraphics" in contents
+    assert "앱 번들에는 제3자 라이브러리를 포함하지 않습니다." in contents
+    assert "Python 런타임" in contents and "포함하지 않습니다." in contents
+    # 같은 내용으로 재수집해도 제3자 고지가 추가되면 안 된다.
+    before = {path.name: path.read_bytes() for path in destination.iterdir()}
+    licenses.collect(destination)
+    assert before == {path.name: path.read_bytes() for path in destination.iterdir()}
 
 
-def upstream_notice():
-    return "\n".join(
-        ["License for binary wheels: GPLv2."]
-        + [
-            f"Name: {name}\nLicense: {'GPLv2' if name == 'x265' else 'LGPLv3'}\n"
-            f"  For details, see {previous}/COPYING\n  Source code: {previous}\n"
-            for name, _, _, previous in licenses.CODEC_SOURCES
-        ]
-        + ["Name: libaom\nLicense: BSD 3-Clause\nSource code: obsolete\n"]
+@pytest.mark.parametrize("name", ["Python-LICENSE.txt", "x265-COPYING", "unexpected"])
+def test_native_notice_collection_rejects_stale_runtime_notices(tmp_path, name):
+    destination = tmp_path / "Licenses"
+    destination.mkdir()
+    stale = destination / name
+    stale.write_text("preserve")
+    with pytest.raises(ValueError, match="불필요"):
+        licenses.collect(destination)
+    assert stale.read_text() == "preserve"
+
+
+@pytest.mark.parametrize("linked_directory", [False, True])
+def test_native_notice_collection_rejects_symlinks(tmp_path, linked_directory):
+    destination = tmp_path / "Licenses"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / licenses.PROJECT_LICENSE
+    sentinel.write_text("preserve")
+    if linked_directory:
+        destination.symlink_to(outside, target_is_directory=True)
+    else:
+        destination.mkdir()
+        (destination / licenses.PROJECT_LICENSE).symlink_to(sentinel)
+    with pytest.raises(ValueError):
+        licenses.collect(destination)
+    assert sentinel.read_text() == "preserve"
+
+
+@pytest.fixture
+def native_app(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "packaging/macos"))
+    validation = load_script("validate_app")
+    app = tmp_path / "heiccy.app"
+    contents = app / "Contents"
+    for directory in ("MacOS", "Resources/worker", "Resources/Licenses"):
+        (contents / directory).mkdir(parents=True)
+    (contents / "Info.plist").write_bytes(
+        (ROOT / "packaging/macos/Info.plist").read_bytes()
     )
+    (contents / "Resources/AppIcon.icns").write_bytes(b"icon")
+    licenses.collect(contents / "Resources/Licenses")
+    for name in ("MacOS/HEICConverter", "Resources/worker/heic-worker"):
+        path = contents / name
+        path.write_bytes(b"\xcf\xfa\xed\xfe" + b"native fixture")
+        path.chmod(0o755)
+    calls = []
+
+    def output(*arguments):
+        calls.append(arguments)
+        if arguments[0] == "lipo":
+            return "arm64\n"
+        if arguments[:2] == ("codesign", "--display"):
+            return "Signature=adhoc\n"
+        if arguments[:2] == ("otool", "-L"):
+            return (
+                f"{arguments[-1]}:\n"
+                "\t/System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO (version)\n"
+                "\t/usr/lib/libSystem.B.dylib (version)\n"
+                "\t@rpath/libswiftCore.dylib (version)\n"
+            )
+        if arguments[:2] == ("otool", "-l"):
+            return (
+                "cmd LC_BUILD_VERSION\nminos 15.0\n"
+                "cmd LC_RPATH\ncmdsize 32\npath /usr/lib/swift (offset 12)\n"
+                "cmd LC_RPATH\ncmdsize 32\npath @loader_path (offset 12)\n"
+            )
+        assert arguments[0] == "codesign"
+        return ""
+
+    monkeypatch.setattr(validation, "output", output)
+    return app, validation, calls
 
 
-def test_notice_points_to_actual_codec_sources_and_preserves_license_terms():
-    result = licenses.corrected_bundled_notice(upstream_notice(), "1.1.1", CODEC_INFO)
-    for name, version, source, previous in licenses.CODEC_SOURCES:
-        assert f"Name: {name}\nVersion: {version}\n" in result
-        assert f"Source code: {source}\n" in result
-        assert f"For details, see {source}/COPYING\n" in result
-        assert previous not in result
-    assert result.count("License: LGPLv3") == 2
-    assert "License: GPLv2" in result
-    assert "Name: libaom" not in result
+def test_native_app_requires_two_signed_arm64_executables(native_app):
+    app, validation, calls = native_app
+    validation.validate(app)
+    expected = {
+        str(app / "Contents/MacOS/HEICConverter"),
+        str(app / "Contents/Resources/worker/heic-worker"),
+    }
+    assert {call[-1] for call in calls if call[0] == "lipo"} == expected
+    assert {call[-1] for call in calls if call[:2] == ("codesign", "--display")} == expected
+    assert ("codesign", "--verify", "--deep", "--strict", str(app)) in calls
 
 
-@pytest.mark.parametrize("codec", ["libheif", "HEIF", "decoders", "AVIF", "encoders"])
-def test_changed_codec_build_requires_notice_review(codec):
-    changed = {**CODEC_INFO, codec: "unexpected"}
-    with pytest.raises(RuntimeError, match="대조"):
-        licenses.corrected_bundled_notice(upstream_notice(), "1.1.1", changed)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Resources/worker/Python.framework/Versions/3.12/Python",
+        "Resources/worker/_internal/libpython3.12.dylib",
+        "Resources/worker/PIL/__init__.py",
+        "Resources/worker/libheif.dylib",
+        "Resources/worker/libde265.dylib",
+        "Resources/worker/libx265.dylib",
+        "Resources/worker/innocent.data",
+        "Resources/Licenses/Python-LICENSE.txt",
+        "_CodeSignature/hidden.pyc",
+        "input/photo.heic",
+    ],
+)
+def test_native_app_rejects_unexpected_runtime_codec_or_private_files(native_app, name):
+    app, validation, _ = native_app
+    path = app / "Contents" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"fixture")
+    with pytest.raises(AssertionError):
+        validation.validate(app)
 
 
-def test_changed_wheel_version_requires_notice_review():
-    with pytest.raises(RuntimeError, match="대조"):
-        licenses.corrected_bundled_notice(upstream_notice(), "1.2.0", CODEC_INFO)
+@pytest.mark.parametrize("change", ["missing", "script", "non-executable", "symlink"])
+def test_worker_must_be_real_native_executable(native_app, change):
+    app, validation, _ = native_app
+    worker = app / "Contents/Resources/worker/heic-worker"
+    if change == "missing":
+        worker.unlink()
+    elif change == "script":
+        worker.write_text("#!/usr/bin/python3\n")
+    elif change == "non-executable":
+        worker.chmod(0o644)
+    else:
+        worker.unlink()
+        worker.symlink_to(app / "Contents/MacOS/HEICConverter")
+    with pytest.raises(AssertionError):
+        validation.validate(app)
 
 
-def test_changed_upstream_notice_fails_instead_of_shipping_old_links():
-    with pytest.raises(RuntimeError, match="형식"):
-        licenses.corrected_bundled_notice(
-            upstream_notice().replace("v1.18.1", "v1.19.0"), "1.1.1", CODEC_INFO
-        )
+@pytest.mark.parametrize("target", ["Info.plist", "license", "notice", "icon"])
+def test_native_app_rejects_wrong_metadata_licenses_and_unexpected_code(native_app, target):
+    app, validation, _ = native_app
+    contents = app / "Contents"
+    if target == "Info.plist":
+        path = contents / target
+        info = plistlib.loads(path.read_bytes())
+        info["CFBundleExecutable"] = "python"
+        path.write_bytes(plistlib.dumps(info))
+    elif target == "license":
+        (contents / "Resources/Licenses" / licenses.PROJECT_LICENSE).write_text("MIT")
+    elif target == "notice":
+        (contents / "Resources/Licenses" / licenses.NOTICE_FILE).write_text("Python runtime")
+    else:
+        (contents / "Resources/AppIcon.icns").write_bytes(b"\xcf\xfa\xed\xfe")
+    with pytest.raises(AssertionError):
+        validation.validate(app)
+
+
+@pytest.mark.parametrize(
+    "tool,response",
+    [
+        ("lipo", "x86_64"),
+        ("lipo", "arm64 x86_64"),
+        ("signature", "Signature=Developer ID"),
+        ("dependency", "/opt/homebrew/lib/libheif.dylib"),
+        ("dependency", "/System/Library/Frameworks/Python.framework/Python"),
+        ("dependency", "/usr/lib/libpython3.12.dylib"),
+        ("dependency", "/usr/lib/libheif.dylib"),
+        ("dependency", "@rpath/libheif.dylib"),
+        ("dependency", "@rpath/unknown.dylib"),
+        ("dependency", "@loader_path/missing.dylib"),
+        ("dependency", "@executable_path/missing.dylib"),
+        ("dependency", "/usr/lib/../../opt/hidden.dylib"),
+        ("load", "cmd LC_BUILD_VERSION\nminos 15.1\n"),
+        ("load", "cmd LC_VERSION_MIN_MACOSX\nversion 16.0\n"),
+        ("rpath", "/opt/homebrew/lib"),
+        ("rpath", "/usr/library/spoofed"),
+        ("rpath", "@loader_path/../../../../outside"),
+        ("rpath", "@loader_path-malformed"),
+        ("rpath", "/usr/lib/../local/lib"),
+        ("load", "cmd LC_BUILD_VERSION\nminos 15.0\n"),
+    ],
+)
+def test_native_app_rejects_unsafe_architecture_signature_and_loader(
+    native_app, monkeypatch, tool, response
+):
+    app, validation, _ = native_app
+    original = validation.output
+    worker = str(app / "Contents/Resources/worker/heic-worker")
+
+    def output(*arguments):
+        result = original(*arguments)
+        if arguments[-1] != worker:
+            return result
+        if tool == "lipo" and arguments[0] == "lipo":
+            return response
+        if tool == "signature" and arguments[:2] == ("codesign", "--display"):
+            return response
+        if tool == "dependency" and arguments[:2] == ("otool", "-L"):
+            return f"{worker}:\n\t{response} (version)\n"
+        if tool in {"load", "rpath"} and arguments[:2] == ("otool", "-l"):
+            if tool == "load":
+                return response
+            return result + f"cmd LC_RPATH\ncmdsize 32\npath {response} (offset 12)\n"
+        return result
+
+    monkeypatch.setattr(validation, "output", output)
+    with pytest.raises(AssertionError):
+        validation.validate(app)
+
+
+def test_native_app_stops_on_failed_signature_verification(native_app, monkeypatch):
+    app, validation, _ = native_app
+    original = validation.output
+
+    def output(*arguments):
+        if arguments[:2] == ("codesign", "--verify"):
+            raise subprocess.CalledProcessError(1, arguments)
+        return original(*arguments)
+
+    monkeypatch.setattr(validation, "output", output)
+    with pytest.raises(subprocess.CalledProcessError):
+        validation.validate(app)
 
 
 def test_pypi_description_and_sdist_use_dedicated_readme():
@@ -231,7 +419,7 @@ def macos_build(tmp_path):
     command("uv", ':')
     command("sw_vers", ':')
     command("PlistBuddy", 'echo 0.3.0')
-    command("swift", 'echo "$BUILD_TEST_SWIFT"')
+    command("swift", 'printf "swift %s\\n" "$*" >> "$BUILD_TEST_LOG"\necho "$BUILD_TEST_SWIFT"')
     command("iconutil", 'touch "${@: -1}"')
     command(
         "hdiutil",
@@ -250,9 +438,9 @@ def macos_build(tmp_path):
     app = swift / "HEICConverter"
     app.write_text('#!/bin/bash\necho "app smoke $*" >> "$BUILD_TEST_LOG"\n')
     app.chmod(0o755)
-    worker = root / "build/macos/frozen/worker"
-    worker.mkdir(parents=True)
-    (worker / "heic-worker").write_text("fixture")
+    worker = swift / "heic-worker"
+    worker.write_text("native worker fixture")
+    worker.chmod(0o755)
     environment = root / ".venv-app-build/bin"
     environment.mkdir(parents=True)
     python = environment / "python"
@@ -297,6 +485,15 @@ def test_full_build_prepares_gui_and_creates_hfs_dmg(macos_build, dmg_status):
     commands = log.read_text()
     assert commands.index("Finder ready") < commands.index("app smoke --smoke-test")
     assert "-fs HFS+ -format UDZO" in commands
+    assert "swift build --package-path macos --configuration release --arch arm64" in commands
+    assert "packaging/macos/test_native_worker.py" in commands
+    assert commands.index("packaging/macos/smoke_worker.py") < commands.index(
+        "packaging/macos/test_native_worker.py"
+    )
+    assert (root / "dist/macos/heiccy.app/Contents/Resources/worker/heic-worker").read_text() == (
+        "native worker fixture"
+    )
+    assert not (root / "build/macos/frozen").exists()
     # 성공 fixture에서는 실제 hdiutil 대신 빈 이미지를 해시한다.
     if dmg_status == 0:
         assert "packaging/macos/validate_dmg.py" in commands

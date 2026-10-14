@@ -147,13 +147,37 @@ import UniformTypeIdentifiers
         }
         model.settings.options.outputFormat = "png"
         guard copy([source]), await idle(), check("PNG 자동 변환", board.pasteboardItems?.first?.data(forType: .png) != nil) else { return false }
+        // Photos ⌘C와 같은 raw HEIC + 보관함 URL + asset 참조를 합성한다.
+        // 보관함 경로는 존재하지 않아도 raw 데이터로 실제 네이티브 변환이 이뤄져야 한다.
+        let libraryURL = folder.appendingPathComponent("미생성.photoslibrary/originals/Photos 원본.heic")
+        let photo = NSPasteboardItem()
+        photo.setString(libraryURL.absoluteString, forType: .fileURL)
+        photo.setString(libraryURL.absoluteString, forType: .URL)
+        photo.setData(original, forType: .init(UTType.heic.identifier))
+        photo.setData(try PropertyListSerialization.data(fromPropertyList: ["mediaType": 1, "mediaSubtypes": 512],
+                                                        format: .binary, options: 0), forType: assetType)
+        let caption = NSPasteboardItem(); caption.setString("Photos 캡션 보존", forType: .string)
+        board.clearContents()
+        guard board.writeObjects([photo, caption]) else { return false }
+        model.pollClipboard()
+        guard await idle(), check("Photos 직접 복사 실제 PNG 변환", model.clipboardFiles.first?.status == .completed
+            && board.pasteboardItems?.first?.data(forType: .png) != nil
+            && board.pasteboardItems?.first?.data(forType: assetType) == nil
+            && board.pasteboardItems?.last?.string(forType: .string) == "Photos 캡션 보존") else { return false }
         var closed = false
         model.shutdown { closed = true }
         let deadline = Date().addingTimeInterval(10)
         while !closed && Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         let sourcePreserved = try Data(contentsOf: source) == original
-        return check("정상 종료 원본 복구", closed && board.pasteboardItems?.first?.string(forType: .fileURL) == source.absoluteString)
-            && check("합성 원본 바이트 보존", sourcePreserved)
+        guard let restored = board.pasteboardItems?.first,
+              let restoredURL = restored.string(forType: .fileURL).flatMap(URL.init(string:)) else { return false }
+        let restoredBytes = try Data(contentsOf: restoredURL)
+        return check("Photos 정상 종료 원본 HEIC 복구", closed && restoredURL != libraryURL
+            && restoredBytes == original && restored.data(forType: .init(UTType.heic.identifier)) == original
+            && restored.data(forType: assetType) == nil
+            && board.pasteboardItems?.last?.string(forType: .string) == "Photos 캡션 보존")
+            && check("보관함 경로 접근 없이 원본 보존", sourcePreserved
+                && !FileManager.default.fileExists(atPath: libraryURL.path))
     } catch { print("자동 변환 smoke 오류: \(error.localizedDescription)"); return false }
 }
 

@@ -1,6 +1,6 @@
 # macOS 앱 빌드와 패키징
 
-macOS 앱의 표시 이름은 **heiccy**다. Apple Silicon arm64, macOS 15 이상이 대상이며 앱 버전은 1.0.0이다. 실행 시 사용자의 Python, Homebrew, uv 또는 pip를 호출하지 않는다. Swift 실행 파일이 `Contents/Resources/worker/heic-worker`를 `Process`로 직접 실행한다.
+macOS 앱의 표시 이름은 **heiccy**다. Apple Silicon arm64, macOS 15 이상이 대상이며 앱 버전은 1.0.0이다. 실행 시 사용자의 Python, Homebrew, uv 또는 pip를 호출하지 않는다. Swift 앱이 Swift로 빌드한 `Contents/Resources/worker/heic-worker`를 `Process`로 직접 실행한다. 앱에는 Python 런타임이나 외부 코덱이 없으며 macOS Image I/O·Core Image·시스템 zlib을 사용한다.
 
 ## 고정 환경
 
@@ -15,17 +15,18 @@ uv pip compile --python .venv-app-build/bin/python \
 bash packaging/macos/build.sh
 ```
 
+이 Python 환경은 합성 HEIC 생성·아이콘·검증·CLI 회귀 검사에만 사용하며 앱에 복사하지 않는다.
 `requirements.in`은 주요 도구의 선정 버전을 기록한 참고 목록이며 실제 설치에는 전체 버전과 해시가 고정된 `requirements.lock`만 사용한다.
 
 ## 조립 및 검증
 
 앱 아이콘은 [확정 원본 PNG](../../docs/assets/branding/heiccy-app-icon.png)를 사용한다. `create_icon.py`가 16·32·128·256·512pt의 1x·2x PNG를 생성하고 `iconutil`로 `AppIcon.icns`를 만든다. 글꼴과 심볼 기하, 흰 타일의 규격은 [디자인 기준](../../docs/assets/branding/DESIGN.md)을 따른다.
 
-1. PyInstaller onedir에 Python, Pillow, pillow-heif, PyObjC의 objc/Foundation/Quartz와 필요한 네이티브 코덱을 수집한다.
+1. Swift Package의 앱과 네이티브 `heic-worker`를 arm64 릴리스 실행 파일로 빌드한다. Python은 빌드·검증 도구에만 사용한다.
 2. Swift Package의 arm64 릴리스 실행 파일을 빌드하고 `Info.plist`, 생성 아이콘과 라이선스 고지를 명시적으로 복사한다. 프로젝트 루트나 사진 폴더 전체를 복사하지 않는다.
-3. Mach-O 파일과 중첩 프레임워크, 앱을 안쪽부터 무료 ad-hoc 서명한다. PyInstaller의 기본 runtime 서명은 무료 ad-hoc 환경에서 Python 라이브러리 로드에 실패할 수 있어 모든 코드를 hardened runtime 없이 다시 서명한다.
+3. 앱과 worker 두 Mach-O 실행 파일과 앱 번들을 안쪽부터 무료 ad-hoc 서명한다. Developer ID 서명·공증은 별도 작업이다.
 4. 모든 Mach-O의 arm64 아키텍처, 상대 로더 경로, 최소 OS 버전과 ad-hoc 서명, 앱 버전과 허용 목록을 검사한다.
-5. 임시 폴더에 합성한 HEIC를 사용해 사용자 Python이 없는 PATH에서 JPEG와 PNG 변환을 확인한다. 합성 Apple 게인 맵 HEIC의 내장 PyObjC HDR 경로도 실행해 16비트 PNG와 PQ ICC 또는 cICP, safe GPS 제거, 원본 보존을 검증한다. 앱 `--smoke-test`도 내장 worker 연결을 확인한다.
+5. 임시 폴더에 합성한 HEIC를 사용해 사용자 Python이 없는 PATH에서 JPEG와 PNG 변환을 확인한다. 합성 Apple 게인 맵 HEIC의 Swift Image I/O HDR 경로도 실행해 16비트 PNG와 PQ ICC 또는 cICP, safe GPS 제거, 원본 보존을 검증한다. 앱 `--smoke-test`도 내장 worker 연결을 확인한다.
 6. `heiccy.app`과 `/Applications` 심볼릭 링크만 담은 `heiccy` 볼륨의 DMG를 만들고 SHA-256을 생성한다. 읽기 전용으로 마운트하고 실제 볼륨 이름이 `heiccy`인지 확인한 뒤 임시 설치 복사본의 앱과 worker를 다시 실행한다.
 
 DMG 생성의 최종 오류가 `hdiutil: create failed - Resource busy`인 경우에만 최대 총
@@ -43,6 +44,7 @@ DMG 생성의 최종 오류가 `hdiutil: create failed - Resource busy`인 경�
 
 ```sh
 .venv-app-build/bin/python packaging/macos/validate_app.py 'dist/macos/heiccy.app'
+.venv-app-build/bin/python packaging/macos/test_native_worker.py 'dist/macos/heiccy.app/Contents/Resources/worker/heic-worker'
 .venv-app-build/bin/python packaging/macos/test_panel_startup.py 'dist/macos/heiccy.app'
 .venv-app-build/bin/python packaging/macos/validate_dmg.py dist/macos/heiccy-1.0.0-arm64.dmg
 .venv-app-build/bin/python -m build --no-isolation

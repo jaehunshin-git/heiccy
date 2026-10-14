@@ -1,125 +1,43 @@
-"""번들에 포함되는 Python 런타임과 의존성의 라이선스 고지 수집입니다."""
+"""Swift 네이티브 앱의 MIT 라이선스와 시스템 프레임워크 고지를 수집한다."""
 
-import importlib.metadata
-import shutil
 import sys
 from pathlib import Path
 
-RUNTIME_DISTRIBUTIONS = (
-    "Pillow",
-    "pillow-heif",
-    "pyobjc-core",
-    "pyobjc-framework-Cocoa",
-    "pyobjc-framework-Quartz",
-    "pyinstaller",
-    "altgraph",
-    "macholib",
-)
+PROJECT_LICENSE = "HEIC-Converter-MIT.txt"
+NOTICE_FILE = "THIRD-PARTY-NOTICES.txt"
+NATIVE_NOTICE = """heiccy 네이티브 macOS 앱 라이선스 고지
 
-CODEC_SOURCES = (
-    (
-        "libheif",
-        "1.20.2",
-        "https://github.com/strukturag/libheif/tree/v1.20.2",
-        "https://github.com/strukturag/libheif/tree/v1.18.1",
-    ),
-    (
-        "libde265",
-        "1.0.16",
-        "https://github.com/strukturag/libde265/tree/v1.0.16",
-        "https://github.com/strukturag/libde265/tree/v1.0.15",
-    ),
-    (
-        "x265",
-        "4.1+1-1d117be",
-        "https://github.com/Multicorewareinc/x265/tree/1d117bed4747758b51bd2c124d738527e30392cb",
-        "https://bitbucket.org/multicoreware/x265_git/src/Release_3.4",
-    ),
-)
+heiccy 앱과 heic-worker는 프로젝트의 MIT License를 따릅니다.
+저작권 고지와 라이선스 전문은 HEIC-Converter-MIT.txt에 있습니다.
+
+앱은 macOS가 제공하는 Apple 시스템 프레임워크와 시스템 라이브러리
+(Swift, zlib 등)를 사용합니다. 이미지 변환은 ImageIO·CoreGraphics·Core Image를 사용합니다.
+이 시스템 구성 요소는 macOS에서 로드하며 앱 번들에 재배포하지 않습니다.
+시스템 구성 요소에는 각 구성 요소의 해당 이용 조건이 적용됩니다.
+
+앱 번들에는 제3자 라이브러리를 포함하지 않습니다.
+Python 런타임, Pillow, pillow-heif, PyObjC, PyInstaller 및
+libheif, libde265, x265 등의 별도 코덱을 포함하지 않습니다.
+이 고지는 네이티브 앱에만 적용되며 별도 PyPI 배포의 의존성과 구분됩니다.
+"""
 
 
-def corrected_bundled_notice(contents: str, version: str, info: dict) -> str:
-    """고정 wheel의 오래된 링크를 실제 코덱 버전의 공식 소스로 보정한다."""
-    expected = {
-        "libheif": "1.20.2",
-        "HEIF": "x265 HEVC encoder (4.1+1-1d117be)",
-        "AVIF": "",
-        "encoders": {"x265": "x265 HEVC encoder (4.1+1-1d117be)", "mask": "mask"},
-        "decoders": {"libde265": "libde265 HEVC decoder, version 1.0.16"},
-    }
-    if version != "1.1.1" or info != expected:
-        raise RuntimeError(
-            f"코덱 소스 고지를 새 wheel과 대조해야 합니다: {version}, {info}"
-        )
-    for name, codec_version, source, previous in CODEC_SOURCES:
-        if contents.count(previous) != 2 or contents.count(f"Name: {name}\n") != 1:
-            raise RuntimeError(f"{name}의 upstream 고지 형식이 변경되었습니다.")
-        contents = contents.replace(previous, source).replace(
-            f"Name: {name}\n", f"Name: {name}\nVersion: {codec_version}\n"
-        )
-    # 1.1.1에는 AVIF/libaom이 없다. upstream의 이전 wheel용 항목을 제외한다.
-    if "\nName: libaom\n" not in contents:
-        raise RuntimeError("고정 wheel의 upstream libaom 고지 형식이 변경되었습니다.")
-    contents = contents.split("\nName: libaom\n", maxsplit=1)[0].rstrip() + "\n"
-    return (
-        "heiccy: pillow-heif 1.1.1의 실제 코덱 버전과 공식 소스에 맞게\n"
-        "upstream LICENSES_bundled.txt의 버전·소스 링크를 보정했습니다.\n\n" + contents
-    )
+def collect(destination: Path) -> None:
+    """설치된 Python 패키지 조회 없이 앱에 필요한 두 고지만 작성한다."""
+    if destination.is_symlink():
+        raise ValueError("라이선스 경로는 링크가 아닌 디렉터리여야 합니다.")
+    destination.mkdir(parents=True, exist_ok=True)
+    allowed = {PROJECT_LICENSE, NOTICE_FILE}
+    for path in destination.iterdir():
+        if path.name not in allowed or path.is_symlink() or not path.is_file():
+            raise ValueError(f"네이티브 앱에 불필요하거나 안전하지 않은 고지: {path}")
+    root = Path(__file__).resolve().parents[2]
+    (destination / PROJECT_LICENSE).write_bytes((root / "LICENSE").read_bytes())
+    (destination / NOTICE_FILE).write_text(NATIVE_NOTICE, encoding="utf-8")
 
 
 def main() -> None:
-    destination = Path(sys.argv[1])
-    notices = ["heiccy 내장 런타임 및 제3자 라이선스 고지\n"]
-    for name in RUNTIME_DISTRIBUTIONS:
-        package = importlib.metadata.distribution(name)
-        notices.append(f"{package.metadata['Name']} {package.version}\n")
-        files = package.files or []
-        matches = [
-            item
-            for item in files
-            if any(
-                token in item.name.lower() for token in ("license", "copying", "notice")
-            )
-        ]
-        bundled_notice_found = False
-        for index, item in enumerate(matches):
-            source = Path(package.locate_file(item))
-            if source.is_file():
-                target = destination / f"{name}-{index}-{source.name}"
-                if name == "pillow-heif" and source.name == "LICENSES_bundled.txt":
-                    from pillow_heif import libheif_info
-
-                    target.write_text(
-                        corrected_bundled_notice(
-                            source.read_text(encoding="utf-8"),
-                            package.version,
-                            libheif_info(),
-                        ),
-                        encoding="utf-8",
-                    )
-                    bundled_notice_found = True
-                else:
-                    target.write_bytes(source.read_bytes())
-        if name == "pillow-heif" and not bundled_notice_found:
-            raise RuntimeError(
-                "pillow-heif wheel의 코덱 라이선스 고지를 찾을 수 없습니다."
-            )
-    supplied = Path(__file__).with_name("licenses")
-    for source in supplied.iterdir():
-        if source.is_file():
-            shutil.copyfile(source, destination / source.name)
-    # Python 독립 배포에는 PSF 고지 및 함께 배포된 라이브러리 고지가 포함된다.
-    runtime = (
-        Path(sys.base_prefix)
-        / f"lib/python{sys.version_info.major}.{sys.version_info.minor}"
-    )
-    for name in ("LICENSE.txt", "LICENSE", "PYTHON.json"):
-        source = runtime / name
-        if source.is_file() and name != "PYTHON.json":
-            (destination / f"Python-{name}").write_bytes(source.read_bytes())
-    if not any(destination.glob("Python-LICENSE*")):
-        raise RuntimeError("고정 Python 런타임의 라이선스 파일을 찾을 수 없습니다.")
-    (destination / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(notices))
+    collect(Path(sys.argv[1]))
 
 
 if __name__ == "__main__":

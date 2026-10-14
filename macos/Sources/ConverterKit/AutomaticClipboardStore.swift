@@ -42,11 +42,12 @@ fileprivate struct ClipboardConversion {
     let itemIndex: Int
     let name: String
     let data: Data
+    let photosSource: Bool
 }
 
 public enum AutomaticClipboardError: LocalizedError {
     case selfPublication, clipboardChanged, unsupportedRepresentation, unreadableRepresentation
-    case unrestorablePhotosLibraryURL
+    case unrestorablePhotosLibraryURL, photosOriginalUnavailable
     case invalidSnapshot, invalidJob, invalidRoot, unsafePath, directoryUnavailable, fileUnavailable
     case invalidImage, incompleteResults, itemUnavailable, writeFailed, restoreFailed, stopped
 
@@ -56,7 +57,8 @@ public enum AutomaticClipboardError: LocalizedError {
         case .clipboardChanged: return "클립보드가 변경되어 이전 작업을 게시하거나 복구하지 않았습니다."
         case .unsupportedRepresentation: return "원본을 안전하게 보존할 수 없는 클립보드 표현입니다."
         case .unreadableRepresentation: return "클립보드 표현 전체를 읽을 수 없어 원본을 변경하지 않았습니다."
-        case .unrestorablePhotosLibraryURL: return "Photos 보관함 원본 URL은 종료 후 복구를 보장할 수 없습니다. 원본을 내보낸 뒤 Finder에서 복사하세요."
+        case .unrestorablePhotosLibraryURL: return "Photos 보관함 동영상의 원본을 안전하게 보존할 수 없습니다. HEIC 사진을 복사하거나 동영상 원본을 내보내세요."
+        case .photosOriginalUnavailable: return "Photos가 읽을 수 있는 HEIC 원본 데이터를 제공하지 않았습니다. 원본이 다운로드된 사진을 다시 복사하세요."
         case .invalidSnapshot: return "이 저장소에서 캡처한 스냅샷이 아닙니다."
         case .invalidJob: return "작업 ID는 UUID여야 하며 이 저장소가 준비한 작업만 사용할 수 있습니다."
         case .invalidRoot: return "임시 경로는 심볼릭 링크가 없는 로컬 전용 폴더여야 합니다."
@@ -195,12 +197,6 @@ public enum AutomaticClipboardError: LocalizedError {
         if originalItems.contains(where: { $0.types.contains(where: isUnsafeType) }) {
             throw Failure.unsupportedRepresentation
         }
-        // raw를 변환할 수 있어도 보관함 URL의 정확한 종료 복구는 보장할 수 없다.
-        // 동영상 보존 분기와 다른 항목의 파일 검사보다 먼저 전체 입력을 거절한다.
-        // URL 문자열만 검사하며 Photos 보관함의 파일·메타데이터에는 접근하지 않는다.
-        if originalItems.contains(where: hasPhotosLibraryURL) {
-            throw Failure.unrestorablePhotosLibraryURL
-        }
         var saved: [[ClipboardRepresentation]] = []
         var descriptors: [ClipboardFile] = []
         var targets: [ClipboardTarget] = []
@@ -208,8 +204,13 @@ public enum AutomaticClipboardError: LocalizedError {
         for (index, item) in originalItems.enumerated() {
             let types = item.types
             guard !types.isEmpty else { throw Failure.unreadableRepresentation }
+            let declaredPhotosPhoto = types.contains(Self.photosAssetType)
+                && photosMediaType(item.data(forType: Self.photosAssetType)) == 1
             var representations: [ClipboardRepresentation] = []
             for type in types {
+                // Photos 전용 asset/dynamic URL은 일반 붙여넣기에 쓰지 않는다.
+                // 사라질 수 있는 private provider 대신 원본 HEIC 바이트를 보존한다.
+                if declaredPhotosPhoto && type != Self.photosAssetType && isPhotosReferenceType(type) { continue }
                 guard !isUnsafeType(type) else { throw Failure.unsupportedRepresentation }
                 guard let data = item.data(forType: type) else { throw Failure.unreadableRepresentation }
                 representations.append(ClipboardRepresentation(type: type, data: data))
@@ -220,6 +221,7 @@ public enum AutomaticClipboardError: LocalizedError {
             }
             // 동영상 원본의 선언은 함께 제공된 HEIC/JPEG 포스터보다 우선한다.
             if let video = videoFile(id: id, index: index, types: types, data: dataForType) {
+                guard !hasPhotosLibraryURL(item) else { throw Failure.unrestorablePhotosLibraryURL }
                 descriptors.append(video)
                 saved.append(representations)
                 continue
@@ -235,10 +237,10 @@ public enum AutomaticClipboardError: LocalizedError {
             var source: URL?
             var name: String?
             var input: Data?
-            if let url = try sourceFileURL(representations) {
+            if let url = try sourceFileURL(representations, lexicalOnly: photosPhoto) {
                 let heic = isHEICExtension(url)
                 // Photos는 파일 URL이 아직 물질화되지 않아 stat/read/썸네일에서 멈출 수 있다.
-                // 명시적 사진의 유효 raw HEIC를 복사 시점의 입력으로 삼고 URL은 복구용으로만 둔다.
+                // 유효 raw HEIC를 입력으로 삼고 종료 복구는 prepare에서 만든 앱 소유 원본을 사용한다.
                 let photosRaw = photosPhoto && heic ? raw.first?.data : nil
                 descriptors.append(ClipboardFile(id: id, name: url.lastPathComponent,
                     url: photosPhoto ? nil : (heic ? url : safePreviewURL(url, isPhotosItem: false)), isHEIC: heic))
@@ -248,7 +250,9 @@ public enum AutomaticClipboardError: LocalizedError {
                         // Photos에서는 raw가 우선한다. URL과 동일 바이트인지 확인하려고 파일을 읽지 않는다.
                         data = photosRaw
                     } else {
-                        try validateSource(url)
+                        guard !photosPhoto || !isPhotosLibraryURL(url) else { throw Failure.photosOriginalUnavailable }
+                        if photosPhoto { try validatePhotosFallbackSource(url) }
+                        else { try validateSource(url) }
                         data = try readFile(url)
                         _ = try heicInputType(data)
                         if let rawData = raw.first?.data, rawData != data { throw Failure.unsupportedRepresentation }
@@ -268,7 +272,14 @@ public enum AutomaticClipboardError: LocalizedError {
             }
             if let source, let input, let name {
                 targets.append(ClipboardTarget(id: id, source: source))
-                conversions.append(ClipboardConversion(itemIndex: index, name: name, data: input))
+                conversions.append(ClipboardConversion(itemIndex: index, name: name, data: input, photosSource: photosPhoto))
+            } else if declaredPhotosPhoto {
+                // 비HEIC 항목은 변환하지 않으므로 생략했던 전용 표현도 원문 순서로 보존한다.
+                let captured = Dictionary(uniqueKeysWithValues: representations.map { ($0.type, $0.data) })
+                representations = try types.map { type in
+                    guard let data = captured[type] ?? item.data(forType: type) else { throw Failure.unreadableRepresentation }
+                    return ClipboardRepresentation(type: type, data: data)
+                }
             }
             saved.append(representations)
         }
@@ -337,11 +348,12 @@ public enum AutomaticClipboardError: LocalizedError {
             let target = snapshot.targets[replacements.count]
             var representations = snapshot.items[conversion.itemIndex].filter {
                 $0.type != .fileURL && !isImageType($0.type)
+                    && (!conversion.photosSource || !isPhotosReferenceType($0.type))
             }.map { representation in
                 if representation.type == .URL,
                    let value = String(data: representation.data, encoding: .utf8),
                    let original = URL(string: value), isLocalURL(original),
-                   InputValidator.canonicalPath(original) == InputValidator.canonicalPath(target.source) {
+                   (conversion.photosSource || InputValidator.canonicalPath(original) == InputValidator.canonicalPath(target.source)) {
                     return ClipboardRepresentation(type: .URL, data: Data(url.absoluteString.utf8))
                 }
                 return representation
@@ -352,7 +364,7 @@ public enum AutomaticClipboardError: LocalizedError {
             representations.append(ClipboardRepresentation(type: .tiff, data: tiff))
             replacements[conversion.itemIndex] = representations
         }
-        let original = try makeItems(snapshot.items)
+        let original = try restorationItems(snapshot: snapshot, job: job)
         let replacement = try makeItems(snapshot.items.enumerated().map { replacements[$0.offset] ?? $0.element })
         guard pasteboard.changeCount == snapshot.changeCount else { throw Failure.clipboardChanged }
         job.exposed = true
@@ -399,7 +411,8 @@ public enum AutomaticClipboardError: LocalizedError {
     public func shutdown() throws {
         stopped = true
         if let publication, pasteboard.changeCount == publication.changeCount {
-            let original = try makeItems(publication.snapshot.items)
+            guard let job = jobs[publication.jobID] else { throw Failure.invalidJob }
+            let original = try restorationItems(snapshot: publication.snapshot, job: job)
             do {
                 selfGeneration = try restore(original, expected: publication.changeCount)
                 self.publication = nil
@@ -413,6 +426,38 @@ public enum AutomaticClipboardError: LocalizedError {
         } else { publication = nil }
         cleanupUnreferenced()
         for id in Array(jobs.keys) { discard(jobID: id) }
+    }
+
+    /// Photos 원본은 복사 당시 HEIC 바이트를 소유 파일로 보존한다.
+    /// 종료 후에도 클립보드가 이 파일을 참조하는 동안 Job을 삭제하지 않는다.
+    private func restorationItems(snapshot: ClipboardSnapshot, job: Job) throws -> [NSPasteboardItem] {
+        if !snapshot.conversions.contains(where: \.photosSource) { return try makeItems(snapshot.items) }
+        try validateJob(job)
+        guard job.inputs.count == snapshot.conversions.count else { throw Failure.invalidJob }
+        var restored = snapshot.items
+        for (index, conversion) in snapshot.conversions.enumerated() where conversion.photosSource {
+            let source = job.inputs[index]
+            try validateResult(source, directory: job.directory)
+            // 임시 입력이 외부에서 바뀌었으면 원본으로 잘못 복구하지 않는다.
+            guard try readFile(source) == conversion.data else { throw Failure.fileUnavailable }
+            var values = restored[conversion.itemIndex].filter { !isPhotosReferenceType($0.type) }.map { value in
+                if value.type == .fileURL || (value.type == .URL &&
+                    String(data: value.data, encoding: .utf8).flatMap(URL.init(string:))?.isFileURL == true) {
+                    return ClipboardRepresentation(type: value.type, data: Data(source.absoluteString.utf8))
+                }
+                return value
+            }
+            if !values.contains(where: { isHEICType($0.type) }) {
+                values.append(ClipboardRepresentation(type: .init(try heicInputType(conversion.data)), data: conversion.data))
+            }
+            restored[conversion.itemIndex] = values
+        }
+        return try makeItems(restored)
+    }
+
+    private func isPhotosReferenceType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        type == Self.photosAssetType || type.rawValue.hasPrefix("com.apple.photos.")
+            || UTType(type.rawValue)?.isDynamic == true
     }
 
     private func restore(_ original: [NSPasteboardItem], expected: Int) throws -> Int {
@@ -519,7 +564,7 @@ public enum AutomaticClipboardError: LocalizedError {
     }
 
     /// 로컬 파일의 public.url 표현도 원본 파일로 취급해 raw 포스터로 우회하지 못하게 한다.
-    private func sourceFileURL(_ representations: [ClipboardRepresentation]) throws -> URL? {
+    private func sourceFileURL(_ representations: [ClipboardRepresentation], lexicalOnly: Bool = false) throws -> URL? {
         var result: URL?
         for representation in representations where representation.type == .fileURL || representation.type == .URL {
             guard let value = String(data: representation.data, encoding: .utf8), let url = URL(string: value) else {
@@ -527,8 +572,11 @@ public enum AutomaticClipboardError: LocalizedError {
             }
             guard representation.type == .fileURL || url.isFileURL else { continue }
             guard isLocalURL(url) else { throw Failure.unsupportedRepresentation }
-            if let result, InputValidator.canonicalPath(result) != InputValidator.canonicalPath(url) {
-                throw Failure.unsupportedRepresentation
+            if let result {
+                let same = lexicalOnly
+                    ? result.path.precomposedStringWithCanonicalMapping == url.path.precomposedStringWithCanonicalMapping
+                    : InputValidator.canonicalPath(result) == InputValidator.canonicalPath(url)
+                guard same else { throw Failure.unsupportedRepresentation }
             }
             result = url
         }
@@ -639,6 +687,18 @@ public enum AutomaticClipboardError: LocalizedError {
         guard try identityOf(job.directory) == job.identity else { throw Failure.unsafePath }
     }
 
+    /// Photos raw가 없는 외부 파일 fallback은 부모 링크로 보관함을 우회하지 않는다.
+    private func validatePhotosFallbackSource(_ url: URL) throws {
+        guard isLocalURL(url), !isPhotosLibraryURL(url) else { throw Failure.photosOriginalUnavailable }
+        var parent = URL(fileURLWithPath: "/", isDirectory: true)
+        for component in url.pathComponents.dropFirst().dropLast() {
+            parent.appendPathComponent(component, isDirectory: true)
+            guard let value = attributes(parent), value.st_mode & S_IFMT == S_IFDIR,
+                  value.st_flags & UInt32(SF_DATALESS) == 0 else { throw Failure.unsafePath }
+        }
+        try validateSource(url)
+    }
+
     private func validateSource(_ url: URL) throws {
         guard isLocalURL(url) else { throw Failure.unsafePath }
         // 원본 파일 자체의 링크는 거절하지만 읽기 전용 부모에는 macOS의 /var·/tmp 별칭을 허용한다.
@@ -709,6 +769,8 @@ public enum AutomaticClipboardError: LocalizedError {
                 guard !isUnsafeType(type), let data = item.data(forType: type) else { return }
                 if type == .fileURL || type == .URL {
                     guard let value = String(data: data, encoding: .utf8), let url = URL(string: value) else { return }
+                    // Photos 공급자 경로의 realpath 조회도 피한다. 이 세대에서는 정리를 보류한다.
+                    if isPhotosLibraryURL(url) { return }
                     if isLocalURL(url) { references.append(url) }
                     else if type == .fileURL || url.isFileURL { return }
                 }

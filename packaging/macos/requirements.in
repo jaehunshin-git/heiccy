@@ -1,5 +1,4 @@
-# 앱 빌드 전용 고정 의존성. CLI 설치 의존성에는 빌드 도구를 추가하지 않는다.
-pyinstaller==6.16.0
+# 앱 빌드·검증 도구의 고정 의존성. 앱에 포함하지 않으며 CLI 설치 의존성과 구분한다.
 Pillow==12.0.0
 pillow-heif==1.1.1
 pyobjc-framework-Quartz==11.1

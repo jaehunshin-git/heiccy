@@ -52,6 +52,7 @@ jobs:
           test_bin="$(swift build --package-path macos --show-bin-path)"
           if [ -d "$test_bin/HEICConverterTests.xctest" ]; then
             xcrun xctest "$test_bin/HEICConverterTests.xctest"
+            xcrun xctest "$test_bin/NativeWorkerTests.xctest"
           else
             # 기존 SwiftPM은 테스트 대상들을 한 패키지 번들로 조립한다.
             xcrun xctest "$test_bin/HEICConverterPackageTests.xctest"
@@ -66,7 +67,7 @@ jobs:
         run: |
           .venv-app-build/bin/python -m build --no-isolation
           .venv-app-build/bin/python packaging/macos/validate_python_dist.py dist
-      - name: 해시 고정 코덱 소스 번들과 빌드 manifest 생성
+      - name: 네이티브 앱 빌드 manifest 생성
         env:
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -76,8 +77,6 @@ jobs:
           BUILD_RUNNER: ${{ matrix.os }}
         run: |
           set -euo pipefail
-          app_version="$(.venv-app-build/bin/python -c 'import plistlib; print(plistlib.load(open("packaging/macos/Info.plist", "rb"))["CFBundleShortVersionString"])')"
-          .venv-app-build/bin/python packaging/release/collect_codec_sources.py dist/macos --version "$app_version"
           .venv-app-build/bin/python packaging/release/verify_release.py manifest \
             --directory dist/macos --runner "$BUILD_RUNNER" \
             --source-repository "$SOURCE_REPOSITORY" --source-commit "$SOURCE_COMMIT" \
@@ -89,8 +88,6 @@ jobs:
           path: |
             dist/macos/heiccy-*-arm64.dmg
             dist/macos/heiccy-*-arm64.dmg.sha256
-            dist/macos/heiccy-codec-sources-*.tar.gz
-            dist/macos/heiccy-codec-sources-*.tar.gz.sha256
             dist/macos/release-manifest-*.json
             dist/*.whl
             dist/*.tar.gz
@@ -196,14 +193,12 @@ jobs:
           PUBLIC_TAG: ${{ steps.verified.outputs.public_tag }}
           DMG: ${{ steps.verified.outputs.dmg }}
           CHECKSUM: ${{ steps.verified.outputs.checksum }}
-          CODEC_SOURCES: ${{ steps.verified.outputs.codec_sources }}
-          CODEC_CHECKSUM: ${{ steps.verified.outputs.codec_checksum }}
           MANIFEST_15: ${{ steps.verified.outputs.manifest_15 }}
           MANIFEST_26: ${{ steps.verified.outputs.manifest_26 }}
         run: |
           set -euo pipefail
           # 기존 태그에 draft만 만든다. 소스·커밋·태그·main은 쓰지 않는다.
           gh release create "$PUBLIC_TAG" "$DMG" "$CHECKSUM" \
-            "$MANIFEST_15" "$MANIFEST_26" "$CODEC_SOURCES" "$CODEC_CHECKSUM" build/release-source.json \
+            "$MANIFEST_15" "$MANIFEST_26" build/release-source.json \
             --repo "$SOURCE_REPOSITORY" --verify-tag --target "$SOURCE_COMMIT" --draft \
             --title "heiccy $PUBLIC_TAG" --notes-file build/release-notes.md

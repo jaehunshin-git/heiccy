@@ -4,6 +4,8 @@ manifest는 두 OS의 독립 빌드 기록이며 서명된 증명서는 아니�
 실행에서 받은 파일만 허용하고, 업로드 후 이미지와 체크섬의 변조를 검출한다.
 새 릴리스는 heiccy의 동일 공개 커밋과 macos-vVERSION 태그를 사용한다.
 SOURCE.json은 과거 export 기록이며 새 릴리스의 출처로 사용하지 않는다.
+빌드 manifest 스키마 2는 네이티브 앱용이며 codec_sources 필드를 제거했다.
+앱에서 별도 코덱을 배포하지 않으므로 코덱 소스 아카이브도 허용하지 않는다.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from pathlib import Path
 
 PUBLIC_REPOSITORY = "jaehunshin-git/heiccy"
 WORKFLOW = ".github/workflows/macos.yml"
+ENGINE = "swift-imageio"
 RUNNERS = ("macos-15", "macos-26")
 VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 
@@ -64,19 +67,20 @@ def validate_manifest(manifest: dict) -> None:
         set(manifest)
         == {
             "schema_version",
+            "engine",
             "app_version",
             "source_repository",
             "source_commit",
             "artifact",
-            "codec_sources",
             "provenance",
         },
         "manifest 필드 구성이 올바르지 않습니다.",
     )
     require(
-        type(manifest["schema_version"]) is int and manifest["schema_version"] == 1,
+        type(manifest["schema_version"]) is int and manifest["schema_version"] == 2,
         "지원하지 않는 manifest 버전입니다.",
     )
+    require(manifest["engine"] == ENGINE, "네이티브 Swift/ImageIO 엔진만 허용합니다.")
     require(matches(manifest["app_version"], VERSION), "잘못된 앱 버전입니다.")
     require(
         matches(manifest["source_commit"], r"[0-9a-f]{40}"), "잘못된 소스 SHA입니다."
@@ -95,18 +99,6 @@ def validate_manifest(manifest: dict) -> None:
         "DMG 파일명과 앱 버전이 일치하지 않습니다.",
     )
     require(matches(artifact["sha256"], r"[0-9a-f]{64}"), "잘못된 SHA-256입니다.")
-    sources = manifest["codec_sources"]
-    require(
-        isinstance(sources, dict) and set(sources) == {"name", "sha256"},
-        "잘못된 codec_sources 필드입니다.",
-    )
-    require(
-        sources["name"] == f"heiccy-codec-sources-{manifest['app_version']}.tar.gz",
-        "코덱 소스 파일명과 앱 버전이 일치하지 않습니다.",
-    )
-    require(
-        matches(sources["sha256"], r"[0-9a-f]{64}"), "잘못된 코덱 소스 SHA-256입니다."
-    )
     provenance = manifest["provenance"]
     require(
         isinstance(provenance, dict)
@@ -172,15 +164,9 @@ def verify_files(directory: Path, manifest: dict) -> tuple[Path, Path]:
         set(directory.glob("*.dmg.sha256")) == {checksum},
         "체크섬 파일이 누락되거나 중복되었습니다.",
     )
-    sources, sources_checksum = verify_pair(directory, manifest["codec_sources"])
     require(
-        set(directory.glob("heiccy-codec-sources-*.tar.gz")) == {sources},
-        "코덱 소스 파일이 누락되거나 중복되었습니다.",
-    )
-    require(
-        set(directory.glob("heiccy-codec-sources-*.tar.gz.sha256"))
-        == {sources_checksum},
-        "코덱 소스 체크섬이 누락되거나 중복되었습니다.",
+        not list(directory.glob("heiccy-codec-sources-*")),
+        "네이티브 앱 릴리스에 코덱 소스 산출물을 포함할 수 없습니다.",
     )
     return image, checksum
 
@@ -198,18 +184,14 @@ def create_manifest(
 ) -> Path:
     version = version_from_plist(plist)
     image = directory / f"heiccy-{version}-arm64.dmg"
-    sources = directory / f"heiccy-codec-sources-{version}.tar.gz"
     require(image.is_file() and not image.is_symlink(), "빌드한 DMG가 없습니다.")
-    require(
-        sources.is_file() and not sources.is_symlink(), "코덱 소스 번들이 없습니다."
-    )
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "engine": ENGINE,
         "app_version": version,
         "source_repository": source_repository,
         "source_commit": source_commit,
         "artifact": {"name": image.name, "sha256": sha256(image)},
-        "codec_sources": {"name": sources.name, "sha256": sha256(sources)},
         "provenance": {
             "runner": runner,
             "architecture": "arm64",
@@ -265,12 +247,9 @@ def verify_release(
         image, checksum = verify_files(directory, manifest)
         result[f"manifest_{runner.removeprefix('macos-')}"] = str(path)
         if runner == "macos-15":
-            sources = directory / manifest["codec_sources"]["name"]
             result.update(
                 dmg=str(image),
                 checksum=str(checksum),
-                codec_sources=str(sources),
-                codec_checksum=str(directory / f"{sources.name}.sha256"),
             )
     return result
 
@@ -302,7 +281,8 @@ def create_provenance(
         }
         require(manifest["provenance"] == expected, "빌드 provenance 불일치")
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "engine": ENGINE,
         "public_repository": PUBLIC_REPOSITORY,
         "public_source_commit": public_commit,
         "source_commit": public_commit,

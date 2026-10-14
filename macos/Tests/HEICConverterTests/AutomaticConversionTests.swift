@@ -355,7 +355,8 @@ final class AutomaticConversionTests: XCTestCase {
                     XCTAssertEqual(notice.copiedFileCount, 1)
                     XCTAssertEqual(notice.heicCount, 1)
                     XCTAssertEqual(notice.completedCount, 0)
-                    XCTAssertEqual(notice.detail, "HEIC를 읽을 수 없습니다. 전체 원본을 유지했습니다.")
+                    XCTAssertTrue(notice.detail?.hasSuffix("전체 원본을 유지했습니다.") == true)
+                    XCTAssertTrue(notice.detail?.contains("클립보드 표현") == true)
                 } else {
                     XCTAssertNil(f.model.conversionNotice)
                     XCTAssertTrue(notices.isEmpty)
@@ -381,10 +382,10 @@ final class AutomaticConversionTests: XCTestCase {
         }
     }
 
-    @MainActor func testPhotosLibraryURLFailsClosedForMixedPhotoAndVideoThroughShutdown() throws {
+    @MainActor func testPhotosLibraryVideoKeepsEntireMixedClipboardThroughShutdown() throws {
         // 합성 입력으로 자동 변경 금지 계약을 검증한다. 실제 Photos의 URL 유실이나 OS 원인을 재현하지 않는다.
         for urlType in [NSPasteboard.PasteboardType.fileURL, .URL] {
-            for mediaType in [1, 2] {
+            for mediaType in [2] {
                 for photosFirst in [false, true] {
                     let f = try Fixture(); defer { f.close() }
                     let raw = try Data(contentsOf: f.source)
@@ -419,8 +420,7 @@ final class AutomaticConversionTests: XCTestCase {
                     let display = try XCTUnwrap(photosFirst ? f.model.clipboardFiles.first : f.model.clipboardFiles.last)
                     XCTAssertNil(display.url, "보관함 원본을 썸네일에 전달하면 안 됩니다.")
                     XCTAssertEqual(display.isVideo, mediaType == 2)
-                    XCTAssertTrue(f.model.message.contains("Photos 보관함 원본 URL은 종료 후 복구를 보장할 수 없습니다."))
-                    XCTAssertTrue(f.model.message.contains("원본을 내보낸 뒤 Finder에서 복사하세요."))
+                    XCTAssertTrue(f.model.message.contains("Photos 보관함 동영상의 원본을 안전하게 보존할 수 없습니다."))
                     XCTAssertEqual(f.board.changeCount, generation)
                     XCTAssertEqual(try contents(f.board), original)
                     XCTAssertFalse(FileManager.default.fileExists(atPath: f.root.appendingPathComponent("managed").path))
@@ -472,8 +472,52 @@ final class AutomaticConversionTests: XCTestCase {
         try f.complete(request)
         XCTAssertEqual(f.model.clipboardFiles.map(\.status), [.completed, .completed, .completed])
         f.model.shutdown()
-        XCTAssertEqual(try contents(f.board), original)
+        let restored = try XCTUnwrap(f.board.pasteboardItems)
+        XCTAssertEqual(restored.count, 3)
+        XCTAssertEqual(try contents(f.board)[0], original[0])
+        for item in restored.dropFirst() {
+            XCTAssertEqual(item.data(forType: .init(UTType.heic.identifier)), raw)
+            XCTAssertNil(item.data(forType: .init("com.apple.photos.object-reference.asset")))
+        }
+        XCTAssertNil(restored[1].string(forType: .fileURL))
+        let copied = try XCTUnwrap(restored[2].string(forType: .fileURL).flatMap(URL.init(string:)))
+        XCTAssertEqual(try Data(contentsOf: copied), raw)
         XCTAssertEqual(try Data(contentsOf: f.source), raw)
+    }
+
+    @MainActor func testPhotosLibraryPhotoPublishesAndRestoresOwnedOriginalWithoutTouchingLibrary() throws {
+        for photosFirst in [false, true] {
+            let f = try Fixture(); defer { f.close() }
+            let raw = try Data(contentsOf: f.source)
+            let library = f.root.appendingPathComponent("없는.photoslibrary/originals/사진.heic")
+            let photo = NSPasteboardItem()
+            XCTAssertTrue(photo.setString(library.absoluteString, forType: .fileURL))
+            XCTAssertTrue(photo.setData(raw, forType: .init(UTType.heic.identifier)))
+            let asset = try PropertyListSerialization.data(fromPropertyList: ["mediaType": 1, "mediaSubtypes": 512], format: .binary, options: 0)
+            XCTAssertTrue(photo.setData(asset, forType: .init("com.apple.photos.object-reference.asset")))
+            let text = NSPasteboardItem(); XCTAssertTrue(text.setString("유지할 캡션", forType: .string))
+            let finder = NSPasteboardItem(); XCTAssertTrue(finder.setString(f.source.absoluteString, forType: .fileURL))
+            f.board.clearContents(); XCTAssertTrue(f.board.writeObjects(photosFirst ? [photo, text, finder] : [finder, text, photo]))
+            f.model.pollClipboard()
+            let request = try f.prepare()
+            XCTAssertEqual(request.files?.count, 2)
+            try f.complete(request)
+            XCTAssertTrue(f.model.clipboardFiles.allSatisfy { $0.status == .completed })
+            XCTAssertEqual(f.model.conversionNotice?.phase, .completed)
+            let published = try XCTUnwrap(f.board.pasteboardItems)
+            let photoIndex = photosFirst ? 0 : 2
+            XCTAssertNil(published[photoIndex].data(forType: .init("com.apple.photos.object-reference.asset")))
+            XCTAssertNotNil(published[photoIndex].data(forType: .init(UTType.jpeg.identifier)))
+            XCTAssertEqual(published[1].string(forType: .string), "유지할 캡션")
+            f.model.shutdown()
+            let restored = try XCTUnwrap(f.board.pasteboardItems)
+            let owned = try XCTUnwrap(restored[photoIndex].string(forType: .fileURL).flatMap(URL.init(string:)))
+            XCTAssertNotEqual(owned, library)
+            XCTAssertEqual(try Data(contentsOf: owned), raw)
+            XCTAssertEqual(restored[photoIndex].data(forType: .init(UTType.heic.identifier)), raw)
+            XCTAssertEqual(restored[1].string(forType: .string), "유지할 캡션")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: library.path))
+        }
     }
 
     @MainActor func testAllSuccessPublishesFileAndImageThenRestoresOriginalOnShutdown() throws {

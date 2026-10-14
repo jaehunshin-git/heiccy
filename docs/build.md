@@ -1,15 +1,9 @@
 # heiccy 소스 빌드
 
-heiccy 공개 저장소가 개발·이슈·PR·빌드·배포의 단일 원본입니다. 기존 private
-저장소는 기록 보존용이며 과거 Git 이력·내부 문서·개인 파일을 복사하지 않습니다.
-기여 절차와 자동 검사·플랫폼 한계는 [단일 저장소 운영](repository-operations.md)을
-따릅니다. 아래 빌드 명령은 로컬 실행 안내이며 이번 전환의 실행 성공 기록이 아닙니다.
-
-`SOURCE.json`은 초기 공개 snapshot의 불변 기록으로 보존합니다. baseline
-`77908397ffb24dc1881ea1f0ebfc5d9d9c977852`의 Git blob 기준으로 검증하고 현재
-작업 트리 해시로 갱신하지 않습니다. `packaging/release/verify_source_snapshot.py`의
-구현했고 로컬에서 131개 baseline 파일 해시와 불변 기록을 검증했습니다. CI 실행은 승인된 push 이후 확인합니다. 새 release manifest는 같은 공개 저장소의 실제
-빌드 SHA를 기록하며 초기 snapshot의 과거 개발 SHA와 분리합니다.
+공개 소스에서 macOS 앱·DMG와 Python 패키지를 빌드하고 검증하는 안내입니다.
+소스 기여와 제출 절차는 [기여 안내](../CONTRIBUTING.md)를 참고하세요.
+초기 소스 기록 보존과 새 릴리스 manifest의 출처 규칙은
+[저장소 운영](repository-operations.md)에서 확인할 수 있습니다.
 
 ## 요구 환경
 
@@ -34,7 +28,7 @@ bash packaging/macos/build.sh
 
 소스 기여자는 `bash scripts/install_git_hooks.sh`로 커밋 메시지 검사 훅을
 설치할 수 있습니다. 규칙·기존 훅 설정·해제 방법은
-[Git 훅 안내](commit-message-hooks.md)를 참고하세요. 개발용 훅은 공개 소스에
+[Git 훅 안내](../.github/commit-message-hooks.md)를 참고하세요. 개발용 훅은 공개 소스에
 포함하며 PyPI 배포에는 포함하지 않습니다.
 
 ## 산출물
@@ -51,7 +45,7 @@ shasum -a 256 -c heiccy-1.0.0-arm64.dmg.sha256
 앱 버전은 `packaging/macos/Info.plist`, Python 패키지 버전은 `pyproject.toml`에서
 독립적으로 관리합니다. 앱 번들 ID와 `converter.settings` 키를 유지합니다.
 신규 앱 태그는 `macos-vVERSION`, PyPI 태그는 `pypi-vVERSION`을 사용하며 과거 문서의
-앱 `vVERSION`은 이전 snapshot 배포 표기이며 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었습니다. `.github/workflows/macos.yml`은 같은 공개
+앱 `vVERSION`은 이전 snapshot 배포 표기입니다. `.github/workflows/macos.yml`은 같은 공개
 SHA를 macOS 15·26에서 검증하고 macOS 15의 DMG를 게시 대상으로 선택하도록
 전환합니다. 두 OS의 DMG는 독립 빌드이므로 서로 같은 바이트일 필요는 없지만 게시
 파일은 선택한 CI 산출물과 SHA-256이 같아야 합니다.
@@ -64,7 +58,7 @@ SHA를 macOS 15·26에서 검증하고 macOS 15의 DMG를 게시 대상으로 �
 `public-release` environment를 게이트로 사용하고, 해당 job만 `contents: write`
 권한을 가진 `github.token`을 사용합니다. PAT는 사용하지 않습니다. 실제 태그
 생성·push, 게이트 활성화와 릴리스 생성·공개 게시는 별도 승인이 필요합니다.
-이번 전환의 CI 실행·manifest 대응·릴리스 게이트 실기/e2e 검증은 pending입니다.
+실행별 CI 결과·배포 승인과 미검증 항목은 해당 이슈·PR에서 기록합니다.
 실제 CI context는 승인된 push·PR 실행 이후 확인한 이름만 strict required checks로
 등록합니다. 환경 이름만으로 승인 보호가 설정됐다고 간주하지 않습니다.
 

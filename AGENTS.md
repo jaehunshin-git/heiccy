@@ -10,7 +10,7 @@
 
 ## 문서와 배포 파일
 
-- 신규 운영 문서는 한국어로 작성한다. `README.md`는 영어, `README.ko.md`는 한국어를 유지한다.
+- 신규 운영 문서는 한국어로 작성한다. `README.md`는 한국어, `README.en.md`는 영어를 유지한다.
 - PyPI 설명 `README.pypi.md`와 `pyproject.toml`의 `description` 등 배포 메타데이터는 영어로 유지한다. 앱 README와 CLI/TUI 배포 설명의 범위를 구분한다.
 - CLI/TUI 기능 변경 시 관련 README를 함께 검토한다. 공개 링크는 `https://github.com/jaehunshin-git/heiccy`를 사용한다.
 - `LICENSE`는 영어로 유지하고 한국어 README에 이용 조건을 요약한다. 한국어 전문을 추가하면 `LICENSE.ko.md`가 참고 번역임을 명시한다.
@@ -49,7 +49,7 @@ python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 �
 
 ## 커밋 훅과 main 보호
 
-- `.githooks/commit-msg`, `scripts/check_commit_message.py`, `scripts/install_git_hooks.sh`의 검사·이전 설정 복원 동작을 유지한다. 설치는 [훅 안내](docs/commit-message-hooks.md)를 따른다.
+- `.githooks/commit-msg`, `scripts/check_commit_message.py`, `scripts/install_git_hooks.sh`의 검사·이전 설정 복원 동작을 유지한다. 설치는 [훅 안내](.github/commit-message-hooks.md)를 따른다.
 - 개인 전역 Git hooksPath 및 userhooks 파일을 덮어쓰지 않는다. 기존 훅은 읽고 역할을 확인하며 명시적 교체 승인 없이 `--replace`를 사용하지 않는다.
 - 형식 실패를 `--no-verify`, 훅 비활성화 또는 직접 제출로 우회하지 않는다.
 - main ruleset은 active, PR 필수, 승인 수 0, 대화 해결 필수, 삭제·force push 차단, bypass 없음으로 운영한다. 초기 설정 적용과 API 재조회는 완료했으며 실제 실패 검사로 merge를 차단하는 원격 검증은 pending이다.
@@ -65,4 +65,4 @@ python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 �
 - 새 release manifest는 같은 공개 저장소의 같은 빌드 SHA와 `.github/workflows/macos.yml` 실행 및 산출물 해시를 기록한다. 초기 snapshot의 private SHA를 새 빌드 출처로 쓰지 않는다.
 - draft release는 기본 disabled다. `HEICCY_RELEASE_ENABLED`, `public-release` environment와 해당 job의 `contents: write` 권한을 가진 `github.token`을 사용하며 PAT를 도입하지 않는다. 태그 생성·push와 실제 릴리스 동작은 별도 승인 후 수행한다.
 - Developer ID 서명·Apple 공증은 기존 미적용 상태를 유지해 기록한다. 빌드 성공을 실기·공개 다운로드 검증 완료로 보고하지 않는다.
-- 구현 요구, 로컬 검증 결과, GitHub 실기/e2e의 pending을 구분한다. 세부 운영 계약과 플랫폼 한계는 [단일 저장소 운영](docs/repository-operations.md)을 따른다.
+- 구현 요구, 로컬 검증 결과, GitHub 실기/e2e의 pending을 구분한다. 기여 절차는 [기여 안내](CONTRIBUTING.md), 세부 운영 계약과 플랫폼 한계는 [저장소 운영](docs/repository-operations.md)을 따른다.

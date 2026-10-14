@@ -41,7 +41,7 @@ SOURCE.json은 초기 기록 그대로이며 현재 작업 트리와 일치시�
 - 이슈 #1 실제 제목·본문·라벨과 템플릿 형식: 통과
 - Active main 기본 ruleset API 적용 후 재조회: 일치
 
-자세한 기록은 docs/verification/single-repository-transition.md에 작성했다.
+자세한 검증 기록과 남은 작업은 [이슈 #1](https://github.com/jaehunshin-git/heiccy/issues/1)에 보존했다.
 
 ### 2026-10-14 템플릿복원 보완
 
@@ -53,11 +53,15 @@ SOURCE.json은 초기 기록 그대로이며 현재 작업 트리와 일치시�
 - 고정 Ruff 전체 검사 통과. 새 전체 pytest는 실행하지 않았으며 기존 516개는 이전 결과로 유지
 - GitHub emoji 라벨 5종을 기존 이름·색·설명 그대로 생성하고 재조회 일치 확인
 
+### 원격 CI
+
+커밋 1fa66be712ad03208d32ddafa2009400d476fc9c의 [macOS CI](https://github.com/jaehunshin-git/heiccy/actions/runs/38489571367)에서 Apple Silicon macos-15·macos-26이 모두 성공했다. 앱 draft job은 조건에 따라 skipped였고 실제 배포는 수행하지 않았다. 이후 README·문서 정리 변경의 원격 CI는 별도로 확인하며 이 실행 결과를 후속 변경 검증으로 사용하지 않는다.
+
 ## ⚠️ Unverified
 
 - 전체 build.sh는 시작 패널 검사에서 실행 중인 설치 앱 보호 장치에 의해 중단됐다. 기존 앱 정상 종료 허용 또는 사용자 종료 이후 시작 검사를 재실행한다. 별도 DMG 검증 성공이 전체 build.sh 성공을 뜻하지 않는다.
-- heiccy macOS 15·26 Actions, 외부 fork, PR/이슈 편집 이벤트·UI와 실제 merge 차단은 push·PR 승인 및 기본 브랜치 반영 이후 확인한다.
-- 실제 검사 이름과 출처 확인 전 required status checks·strict 최신화는 미적용이다. 첫 PR에서는 trusted 기본 브랜치 metadata 검사가 unavailable이다.
+- 외부 fork, PR/이슈 편집 이벤트·UI와 실제 merge 차단은 PR 지시 및 기본 브랜치 반영 이후 확인한다.
+- 실제 macOS 검사 이름을 확인했지만 required status checks·strict 최신화는 아직 미적용이다. 첫 PR에서는 trusted 기본 브랜치 metadata 검사가 unavailable이다.
 - public pull_request_target의 Actions event policy, public-release 보호 설정과 배포 활성화는 아직 검증·설정하지 않았다.
 - 실제 앱/PyPI 태그·draft 생성·업로드·공개 릴리스·비인증 다운로드는 수행하지 않았다. 서명·공증은 기존 ad-hoc 상태를 유지한다.
 

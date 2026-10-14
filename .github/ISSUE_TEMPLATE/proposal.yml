@@ -1,0 +1,24 @@
+name: 기능 제안
+description: 개선하고 싶은 사용 경험을 알려 주세요.
+title: "[제안] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결하고 싶은 문제
+      description: 어떤 상황에서 어떤 불편이 생기는지 설명해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 제안하는 동작
+      description: 원하는 동작과 기대 효과를 설명해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 현재 사용하는 대안
+      description: 대안이 없다면 비워 두거나 해당 없음과 이유를 적어 주세요.

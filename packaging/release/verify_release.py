@@ -2,8 +2,8 @@
 
 manifest는 두 OS의 독립 빌드 기록이며 서명된 증명서는 아니다. 같은 Actions
 실행에서 받은 파일만 허용하고, 업로드 후 이미지와 체크섬의 변조를 검출한다.
-공개 source_commit은 exporter가 SOURCE.json에 기록하는 내부 빌드 SHA다.
-공개 Git 커밋은 이 SHA와 별개이며 워크플로에서 export 후 생성한다.
+새 릴리스는 heiccy의 동일 공개 커밋과 macos-vVERSION 태그를 사용한다.
+SOURCE.json은 과거 export 기록이며 새 릴리스의 출처로 사용하지 않는다.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import hashlib
 import json
 import plistlib
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 PUBLIC_REPOSITORY = "jaehunshin-git/heiccy"
 WORKFLOW = ".github/workflows/macos.yml"
@@ -82,8 +82,8 @@ def validate_manifest(manifest: dict) -> None:
         matches(manifest["source_commit"], r"[0-9a-f]{40}"), "잘못된 소스 SHA입니다."
     )
     require(
-        matches(manifest["source_repository"], r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"),
-        "잘못된 소스 저장소입니다.",
+        manifest["source_repository"] == PUBLIC_REPOSITORY,
+        "소스 저장소 불일치: 새 릴리스는 jaehunshin-git/heiccy만 허용합니다.",
     )
     artifact = manifest["artifact"]
     require(
@@ -239,9 +239,10 @@ def verify_release(
     run_attempt: str,
 ) -> dict[str, str]:
     version = version_from_plist(plist)
-    require(tag == f"macos-v{version}", "내부 macOS 태그와 앱 버전이 다릅니다.")
+    require(tag == f"macos-v{version}", "macOS 태그와 앱 버전이 다릅니다.")
+    require(source_repository == PUBLIC_REPOSITORY, "소스 저장소 불일치")
     require(set(directories) == set(RUNNERS), "두 OS의 산출물이 모두 필요합니다.")
-    result = {"version": version, "public_tag": f"v{version}"}
+    result = {"version": version, "public_tag": tag}
     for runner in RUNNERS:
         directory = directories[runner]
         path = directory / f"release-manifest-{runner}.json"
@@ -274,64 +275,44 @@ def verify_release(
     return result
 
 
-def verify_snapshot(directory: Path, *, source_commit: str, version: str) -> None:
-    require(matches(source_commit, r"[0-9a-f]{40}"), "잘못된 소스 SHA입니다.")
-    require(matches(version, VERSION), "잘못된 앱 버전입니다.")
-    metadata = read_json(directory / "SOURCE.json")
-    require(
-        metadata.get("source_commit") == source_commit,
-        "공개 SOURCE.json의 내부 소스 SHA 불일치",
-    )
-    require(
-        version_from_plist(directory / "packaging/macos/Info.plist") == version,
-        "공개 스냅샷의 앱 버전 불일치",
-    )
-    require(metadata.get("app_version") == version, "공개 SOURCE.json의 앱 버전 불일치")
-    require(
-        matches(metadata.get("py_version"), VERSION),
-        "공개 Python 버전이 올바르지 않습니다.",
-    )
-    files = metadata.get("files")
-    require(isinstance(files, dict) and bool(files), "공개 소스 해시 목록이 없습니다.")
-    for name, digest in files.items():
-        relative = PurePosixPath(name)
-        require(
-            not relative.is_absolute()
-            and relative.as_posix() == name
-            and not any(part in {"..", ".git"} for part in relative.parts)
-            and name != "SOURCE.json",
-            "공개 소스 해시 목록의 경로가 올바르지 않습니다.",
-        )
-        require(matches(digest, r"[0-9a-f]{64}"), "공개 소스 해시가 올바르지 않습니다.")
-        require(
-            not any(
-                (directory / Path(*relative.parts[:index])).is_symlink()
-                for index in range(1, len(relative.parts) + 1)
-            ),
-            "공개 소스 경로에 링크가 있습니다.",
-        )
-        path = directory / name
-        require(
-            path.is_file() and sha256(path) == digest,
-            f"공개 소스 SHA-256 불일치: {name}",
-        )
-    github = directory / ".github"
-    # 공개 저장소에 내부 CI나 기존 공개 워크플로를 남기지 않는다.
-    require(not github.is_symlink(), "공개 .github 경로에 링크가 있습니다.")
-    if github.exists():
-        require(
-            all(
-                path.name == "ISSUE_TEMPLATE"
-                and path.is_dir()
-                and not path.is_symlink()
-                for path in github.iterdir()
-            ),
-            "공개 .github에는 이슈 템플릿만 허용합니다.",
-        )
-        require(
-            not any(path.is_symlink() for path in github.rglob("*")),
-            "공개 이슈 템플릿에 링크가 있습니다.",
-        )
+def create_provenance(
+    manifest_15: Path,
+    manifest_26: Path,
+    *,
+    public_commit: str,
+    output: Path,
+) -> None:
+    """두 OS가 같은 공개 커밋·태그·Actions 실행을 빌드한 기록을 첨부한다."""
+    require(matches(public_commit, r"[0-9a-f]{40}"), "잘못된 공개 커밋 SHA입니다.")
+    manifests = [read_json(manifest_15), read_json(manifest_26)]
+    for manifest in manifests:
+        validate_manifest(manifest)
+    version = manifests[0]["app_version"]
+    tag = f"macos-v{version}"
+    for runner, manifest in zip(RUNNERS, manifests, strict=True):
+        require(manifest["source_commit"] == public_commit, "공개 커밋과 빌드 SHA 불일치")
+        require(manifest["app_version"] == version, "두 빌드의 앱 버전 불일치")
+        expected = {
+            "runner": runner,
+            "architecture": "arm64",
+            "workflow": WORKFLOW,
+            "source_ref": f"refs/tags/{tag}",
+            "run_id": manifests[0]["provenance"]["run_id"],
+            "run_attempt": manifests[0]["provenance"]["run_attempt"],
+        }
+        require(manifest["provenance"] == expected, "빌드 provenance 불일치")
+    record = {
+        "schema_version": 1,
+        "public_repository": PUBLIC_REPOSITORY,
+        "public_source_commit": public_commit,
+        "source_commit": public_commit,
+        "app_version": version,
+        "public_tag": tag,
+        "published_runner": "macos-15",
+        "build_manifests": manifests,
+    }
+    with output.open("x", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
 
 
 def main() -> None:
@@ -354,12 +335,8 @@ def main() -> None:
         for field in ("source-repository", "source-commit", "run-id", "run-attempt"):
             command.add_argument(f"--{field}", required=True)
     create.add_argument("--source-ref", required=True)
-    snapshot = commands.add_parser("snapshot", help="커밋 전 공개 스냅샷 검증")
-    snapshot.add_argument("directory", type=Path)
-    snapshot.add_argument("--source-commit", required=True)
-    snapshot.add_argument("--version", required=True)
     provenance = commands.add_parser(
-        "provenance", help="공개 커밋과 내부 빌드의 연결 기록"
+        "provenance", help="동일 공개 커밋과 두 OS 빌드의 연결 기록"
     )
     provenance.add_argument("--manifest-15", type=Path, required=True)
     provenance.add_argument("--manifest-26", type=Path, required=True)
@@ -368,33 +345,11 @@ def main() -> None:
     args = parser.parse_args()
     try:
         if args.command == "provenance":
-            require(
-                matches(args.public_commit, r"[0-9a-f]{40}"),
-                "잘못된 공개 커밋 SHA입니다.",
-            )
-            manifests = [read_json(args.manifest_15), read_json(args.manifest_26)]
-            for manifest in manifests:
-                validate_manifest(manifest)
-            require(
-                manifests[0]["source_commit"] == manifests[1]["source_commit"]
-                and manifests[0]["app_version"] == manifests[1]["app_version"],
-                "두 빌드의 소스 SHA 또는 버전이 다릅니다.",
-            )
-            record = {
-                "schema_version": 1,
-                "public_repository": PUBLIC_REPOSITORY,
-                "public_source_commit": args.public_commit,
-                "source_commit": manifests[0]["source_commit"],
-                "app_version": manifests[0]["app_version"],
-                "public_tag": f"v{manifests[0]['app_version']}",
-                "published_runner": "macos-15",
-                "build_manifests": manifests,
-            }
-            with args.output.open("x", encoding="utf-8") as stream:
-                stream.write(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
-        elif args.command == "snapshot":
-            verify_snapshot(
-                args.directory, source_commit=args.source_commit, version=args.version
+            create_provenance(
+                args.manifest_15,
+                args.manifest_26,
+                public_commit=args.public_commit,
+                output=args.output,
             )
         elif args.command == "manifest":
             create_manifest(
@@ -423,8 +378,9 @@ def main() -> None:
             require(bool(notes.strip()), "릴리스 노트가 비어 있습니다.")
             notes += (
                 "\n\n빌드 출처\n\n"
-                f"- 내부 source_commit: `{args.source_commit}`\n"
-                "- 위 SHA는 비공개 빌드 저장소의 SHA이며 공개 Git 커밋과 별개입니다.\n"
+                f"- 공개 소스 저장소: https://github.com/{PUBLIC_REPOSITORY}\n"
+                f"- 공개 source_commit: `{args.source_commit}`\n"
+                f"- 앱 태그: `{result['public_tag']}` (위 공개 커밋과 동일)\n"
                 f"- 빌드 실행: `{args.run_id}`, 시도: `{args.run_attempt}`\n"
                 "- macOS 15와 26 검증을 통과한 macOS 15 arm64 DMG 원본입니다.\n"
                 "- 라이선스 완전성 확인과 다운로드 검증 후 수동 공개할 draft입니다.\n"

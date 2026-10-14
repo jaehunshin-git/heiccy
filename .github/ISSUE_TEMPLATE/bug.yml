@@ -1,6 +1,7 @@
 name: 버그 신고
 description: heiccy 앱 또는 CLI/TUI의 오류를 알려 주세요.
 title: "[버그] "
+labels: [bug]
 body:
   - type: markdown
     attributes:
@@ -32,4 +33,4 @@ body:
     id: diagnostics
     attributes:
       label: 추가 정보
-      description: 개인정보를 제거한 오류 메시지나 화면을 첨부해 주세요.
+      description: 개인정보를 제거한 오류 메시지나 화면을 첨부해 주세요. 정보가 없으면 비워 두거나 해당 없음과 이유를 적어 주세요.

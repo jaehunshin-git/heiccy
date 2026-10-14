@@ -55,9 +55,31 @@ wheel과 sdist는 버전 0.3.0, 지정 경로 허용 목록, 영어 Summary와 R
 
 DMG를 열고 heiccy를 Applications로 드래그한다. 첫 실행이 차단되면 한 번 실행을 시도한 뒤 시스템 설정 → 개인정보 보호 및 보안 → 확인 없이 열기로 허용한다. ad-hoc 서명과 DMG는 Developer ID 서명·공증이나 Gatekeeper 신뢰를 제공하지 않는다. 이 버전은 Developer ID 서명과 공증을 수행하지 않는다.
 
-개발 CI는 macOS 15·26에서 검증합니다. 개발 태그 `macos-v<앱 버전>` 실행의 두 OS 검증을 통과한 뒤, 로그인된 GitHub CLI로 공개 `heiccy` 저장소에 소스 사본과 `v<앱 버전>` 초안 릴리스를 수동으로 만듭니다. 자동 게시 job은 비활성 상태로 유지하며 전용 PAT·CI 게시 secret을 사용하지 않습니다. Python 태그 `v<Python 버전>`은 별도이며 앱 배포가 PyPI 업로드를 실행하지 않습니다. 공개 소스와 산출물의 대응은 `SOURCE.json`과 릴리스 manifest로 확인합니다. [공개 빌드 안내](../../docs/build.md)를 참고하세요.
+개발·빌드·배포의 단일 원본은 공개 `jaehunshin-git/heiccy`입니다. 기존 private는
+기록 보존용이며 소스 사본을 export해 별도 공개 커밋을 만드는 절차를 신규 배포에
+사용하지 않습니다. private Git 이력·내부 문서·개인 파일을 복사하지 않습니다.
 
-2026-10-13 현재 첫 DMG 릴리스는 게시 준비 중이며 소스 사본을 공개했습니다.
+신규 앱 태그는 `macos-vVERSION`, Python 태그는 `pypi-vVERSION`이며 버전과
+배포 시점은 독립적입니다. 과거 문서의 앱 `vVERSION`은 이전 snapshot 배포 표기이며 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었습니다. 앱 배포는
+PyPI 업로드를 실행하지 않습니다. `.github/workflows/macos.yml`에서 같은 공개
+SHA를 macOS 15·26에서 검증하고 macOS 15 산출물을 게시 대상으로 선택하도록
+전환합니다. 새 manifest는 같은 공개 저장소·같은 공개 SHA·해당 workflow 실행과
+산출물 해시를 기록합니다.
+
+`SOURCE.json`은 초기 공개 snapshot 기록으로 불변입니다. baseline
+`77908397ffb24dc1881ea1f0ebfc5d9d9c977852`의 Git blob 기준 검사기를
+`packaging/release/verify_source_snapshot.py`로 검증하며 현재 작업 트리의
+해시로 갱신하지 않습니다. 새 manifest의 출처를 초기 snapshot의 private SHA와
+혼동하지 않습니다.
+
+앱 draft release job은 기본 disabled입니다. `HEICCY_RELEASE_ENABLED` 변수와
+`public-release` environment를 게이트로 사용하고 해당 job의 `contents: write`
+권한을 가진 `github.token`으로 같은 저장소에 draft를 만듭니다. PAT는 사용하지
+않으며 태그 생성·push, 게이트 활성화와 실제 릴리스 생성·공개 게시에는 별도 승인이
+필요합니다. CI·snapshot 검사기·manifest·릴리스 게이트의 이번 전환 검증과 GitHub
+실기/e2e는 pending입니다. [빌드 안내](../../docs/build.md)와
+[단일 저장소 운영](../../docs/repository-operations.md)을 참고하세요.
+
 설치 파일은 릴리스가 공개된 뒤 제공하며, CI artifact를 받아 검증한 결과는
 GitHub Releases의 공개 게시나 비인증 다운로드 검증 완료를 뜻하지 않습니다.
 

@@ -358,12 +358,27 @@ JPEG or PNG. It does not support:
 
 ## Development and documentation
 
-Release snapshots include the Swift menu bar app, Python conversion service and
-CLI/TUI, tests, and pinned build tools. See the [build guide](docs/build.md).
-Each snapshot records the development source commit and file hashes in
-`SOURCE.json`; the public Git history begins with this migration.
-App releases use `v<app version>` in this repository. The PyPI package has its own
-version and release schedule; its English description is [README.pypi.md](README.pypi.md).
+This repository is the single source for development, issues, pull requests,
+builds, and releases of the Swift menu bar app and Python CLI/TUI. The previous
+private repository is retained for historical reference; private history,
+internal documents, and personal files are not copied here.
+See the [build guide](docs/build.md) and [repository operations](docs/repository-operations.md)
+(in Korean) for contribution requirements and the transition's pending checks.
+
+`SOURCE.json` remains an immutable record of the initial public snapshot, verified
+against baseline commit `77908397ffb24dc1881ea1f0ebfc5d9d9c977852` rather than
+current working-tree hashes. New release manifests identify the same public
+repository and actual build commit, with `.github/workflows/macos.yml` provenance.
+App releases use `macos-vVERSION`; Python releases use `pypi-vVERSION` with an
+independent version and schedule. The earlier `vVERSION` app-tag notation describes the old snapshot workflow;
+the transition check on 2026-10-13 found no app tags or releases. The Python package's English description is [README.pypi.md](README.pypi.md).
+
+Draft app releases are disabled by default and gated by `HEICCY_RELEASE_ENABLED`
+and the `public-release` environment. The release job uses `github.token` with
+job-level `contents: write`, without a PAT. Creating or pushing release tags and
+running a release requires explicit authorization. GitHub CI, ruleset enforcement,
+and release gate end-to-end verification for this transition are pending.
+
 Automatic app updates, Intel support, Homebrew Cask and Mac App Store distribution
 are not included in this release. To update, quit the app and install the new DMG.
 

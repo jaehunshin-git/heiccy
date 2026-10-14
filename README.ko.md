@@ -358,12 +358,26 @@ HEIC의 기본 정지 이미지 한 장만 JPEG 또는 PNG로 변환합니다. �
 
 ## 개발과 문서
 
-공개 릴리스별 소스에는 Swift 메뉴바 앱, Python 변환 서비스·CLI/TUI, 테스트와
-고정 빌드 도구가 포함됩니다. [빌드 안내](docs/build.md)를 참고하세요.
-`SOURCE.json`에 개발 기준 커밋과 파일별 해시를 기록하며 공개 Git 이력은
-이번 이전부터 새로 시작합니다. 공개 저장소의 앱 태그는 `v<앱 버전>`입니다.
-PyPI 패키지는 버전과 배포 시점을 독립적으로 관리하며 영문 설명은
+heiccy는 Swift 메뉴바 앱과 Python CLI/TUI의 개발·이슈·PR·빌드·배포를 운영하는
+단일 원본 저장소입니다. 기존 private 저장소는 과거 기록을 보존하며 Git 이력,
+내부 문서와 개인 파일을 복사하지 않습니다. [빌드 안내](docs/build.md)와
+[단일 저장소 운영](docs/repository-operations.md)에서 기여 규칙과 전환 검증 상태를
+확인할 수 있습니다.
+
+`SOURCE.json`은 초기 공개 snapshot의 불변 기록입니다. 현재 작업 트리 해시로
+갱신하지 않고 baseline `77908397ffb24dc1881ea1f0ebfc5d9d9c977852`에서 검증합니다.
+새 release manifest는 같은 공개 저장소의 실제 빌드 SHA와
+`.github/workflows/macos.yml` 실행을 기록합니다.
+앱 태그는 `macos-vVERSION`, PyPI 태그는 `pypi-vVERSION`이며 버전과 배포 시점은
+독립적입니다. 과거 앱 `vVERSION` 표기는 이전 snapshot 배포 방식이며 2026-10-13 전환 점검에서 앱 태그·릴리스는 없었습니다. PyPI 영문 설명은
 [README.pypi.md](README.pypi.md)에서 관리합니다.
+
+앱 draft release는 기본 disabled이며 `HEICCY_RELEASE_ENABLED` 변수와
+`public-release` environment를 게이트로 사용합니다. 해당 job의 `contents: write`
+권한을 가진 `github.token`을 사용하고 PAT는 도입하지 않습니다. 실제 릴리스 태그
+생성·push와 릴리스 실행은 별도 승인이 필요합니다. 이번 전환의 GitHub CI·ruleset
+차단·릴리스 게이트 실기/e2e 검증은 pending입니다.
+
 앱 자동 업데이트, Intel 지원, Homebrew Cask와 Mac App Store 배포는 이번 범위에
 포함하지 않습니다. 업데이트할 때 앱을 종료한 뒤 새 DMG로 교체합니다.
 

@@ -20,8 +20,8 @@ COMMIT_MESSAGE_PYTHON=/opt/homebrew/bin/python3 bash scripts/install_git_hooks.s
 
 설치기는 훅의 실행 권한을 설정하고 저장소 로컬 `core.hooksPath`를 `.githooks`로
 연결한다. 설치 파일의 위치로 저장소를 찾으므로 다른 디렉터리에서도 절대 경로로 실행할
-수 있다. 개인의 전역 설정은 수정하지 않는다. Git clone만으로 훅은 활성화되지 않으므로
-새 체크아웃에서 설치가 필요하다.
+수 있다. 개인의 전역 설정과 전역 userhooks 파일은 수정하거나 덮어쓰지 않는다.
+Git clone만으로 훅은 활성화되지 않으므로 새 체크아웃에서 설치가 필요하다.
 
 기존 hooksPath가 있으면 자동으로 덮어쓰지 않는다. 기존 훅의 역할을 확인한 뒤 명시적으로
 교체하거나, 기존 commit-msg 훅에서 검사기를 호출하도록 직접 통합한다. 자동 체이닝은
@@ -148,7 +148,7 @@ Git 내부 커밋 생성 경로도 훅 호출을 보장하지 않으며, 강제 
 python3 scripts/check_commit_message.py /path/to/COMMIT_EDITMSG
 python3 scripts/check_commit_message.py --rules scripts/commit_message_rules.json /path/to/message
 uv run pytest tests/test_commit_message.py
-uvx --from ruff==0.14.4 ruff check src tests scripts packaging/macos
+uvx --from ruff==0.14.4 ruff check --config pyproject.toml src tests scripts packaging/macos
 ```
 
 직접 검사 명령은 Git 편집기 주석 제거 없이 원문을 검사한다. 정상 종료는 0, 규칙 위반은 1,
@@ -157,8 +157,36 @@ uvx --from ruff==0.14.4 ruff check src tests scripts packaging/macos
 주석 처리, 기존 hooksPath 복원과 linked worktree를 임시 저장소에서 검증한다.
 개발용 scripts·훅·문서는 PyPI 허용 목록에 추가하지 않으며 sdist에서는 해당 테스트를 건너뛴다.
 
-로컬 훅은 `git commit --no-verify`로 우회할 수 있다. 팀 전체 강제가 필요한 경우 같은
-검사기를 CI에 연결하는 확장은 별도 작업으로 다룬다.
+로컬 훅은 기술적으로 `git commit --no-verify`로 우회할 수 있지만 저장소 정책은 형식
+실패를 훅 비활성화나 우회로 제출하는 것을 금지한다. 원격 강제 범위는 실제로 실행해
+등록한 CI status와 main ruleset을 기준으로 판단한다. 이번 단일 저장소 전환의 GitHub
+실기/e2e 확인과 실제 CI context의 strict 등록은 pending이다.
+
+## 이슈·PR 검사는 커밋 훅과 별도
+
+`gh issue create`·`gh pr create`와 API 제출은 Git 커밋이 아니므로 `commit-msg`를
+실행하지 않는다. 훅 설치만으로 이슈·PR 형식 검사가 활성화됐다고 보고하지 않는다.
+생성 전 해당 템플릿을 실제로 읽고 제목·labels·필수 항목을 동일하게 작성한다.
+본문을 실제 제출 파일로 만든 뒤 다시 읽고 공통 검사기로 검사한다. 빈 필수 항목과
+placeholder를 남기지 않으며 `해당 없음`은 허용된 항목에만 이유와 함께 쓴다.
+
+현재 검사기와 helper의 인터페이스는 다음과 같으며 두 CLI의 `--help`로 확인했다.
+이슈 #1의 공통 checker 통과는 사용자 전달 결과이고 실제 제출·원격 자동 검증은 pending이다.
+
+```sh
+python3 scripts/check_submission.py --kind issue --template task --title '[작업] 단일 저장소 운영 전환' --body-file /path/to/issue-body.md --label enhancement
+python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 운영 전환' --body-file /path/to/pr-body.md
+```
+
+이슈의 `--template`은 `bug|proposal|feature|fix|docs|init|refactor|task`이고 `scripts/create_submission.py` helper도
+`--kind`, `--title`, `--body-file`, `--template`, `--label`의 같은 validation 옵션을
+사용한다. 이슈에 `--template`을 지정하고 템플릿 labels를 `--label`로 전달한다.
+검사 실패를 직접 CLI/API 호출로 우회하지 않는다.
+제출 승인과 형식 통과는 별개이며 실제 제출은 승인 범위 안에서만 수행한다.
+PR의 Summary·Tasks·To Reviewer·Validation·Unverified 및 `Closes #번호` 연결,
+trusted base 검사기의 `PR 형식 검증` status, 이슈의 invalid-format 표시와 main
+ruleset·플랫폼 race 한계는 [단일 저장소 운영](repository-operations.md)을 따른다.
+기존 commit-msg 검사기와 installer의 설정 보관·복원 동작은 유지한다.
 
 참고 규격: [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),
 [Git hooks](https://git-scm.com/docs/githooks),

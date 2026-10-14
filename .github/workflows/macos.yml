@@ -1,0 +1,209 @@
+name: macOS 앱 및 Python 검증
+
+on:
+  push:
+    branches: ['**']
+    tags: ['macos-v*', 'pypi-v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/macos-v') }}
+
+jobs:
+  validate:
+    name: Apple Silicon ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: 0.11.11
+      - name: Python 빌드 환경 설치
+        run: |
+          test "$(uname -m)" = arm64
+          uv python install 3.12.12
+          uv venv --python 3.12.12 .venv-app-build
+          uv pip sync --python .venv-app-build/bin/python --require-hashes packaging/macos/requirements.lock
+      - name: Python 정적 검사와 회귀 테스트
+        run: |
+          .venv-app-build/bin/ruff check --config pyproject.toml src tests scripts packaging/macos packaging/release
+          PYTHONPATH=src .venv-app-build/bin/python -m pytest
+      - name: 과거 공개 소스 baseline 보존 검증
+        run: .venv-app-build/bin/python packaging/release/verify_source_snapshot.py
+      - name: Swift 빌드와 회귀 테스트
+        run: |
+          swift build --package-path macos
+          swift test --package-path macos
+          # 최신 Swift의 swift test가 실행 대상 XCTest 번들을 생략하는 경우도 검증한다.
+          test_bin="$(swift build --package-path macos --show-bin-path)"
+          if [ -d "$test_bin/HEICConverterTests.xctest" ]; then
+            xcrun xctest "$test_bin/HEICConverterTests.xctest"
+          else
+            # 기존 SwiftPM은 테스트 대상들을 한 패키지 번들로 조립한다.
+            xcrun xctest "$test_bin/HEICConverterPackageTests.xctest"
+          fi
+      - name: 클립보드 진단 도구의 독립 프로세스 검증
+        run: .venv-app-build/bin/python packaging/macos/test_clipboard_probe.py
+      - name: 앱과 DMG 조립 및 설치본 검증
+        timeout-minutes: 20
+        run: bash packaging/macos/build.sh
+      - name: Python 배포 파일 빌드와 허용 목록 검증
+        # pypi-vVERSION도 검증만 실행한다. PyPI 실제 업로드는 별도 절차다.
+        run: |
+          .venv-app-build/bin/python -m build --no-isolation
+          .venv-app-build/bin/python packaging/macos/validate_python_dist.py dist
+      - name: 해시 고정 코덱 소스 번들과 빌드 manifest 생성
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BUILD_RUNNER: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          app_version="$(.venv-app-build/bin/python -c 'import plistlib; print(plistlib.load(open("packaging/macos/Info.plist", "rb"))["CFBundleShortVersionString"])')"
+          .venv-app-build/bin/python packaging/release/collect_codec_sources.py dist/macos --version "$app_version"
+          .venv-app-build/bin/python packaging/release/verify_release.py manifest \
+            --directory dist/macos --runner "$BUILD_RUNNER" \
+            --source-repository "$SOURCE_REPOSITORY" --source-commit "$SOURCE_COMMIT" \
+            --source-ref "$SOURCE_REF" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+      - name: 검증한 산출물 업로드
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: heiccy-${{ matrix.os }}-arm64
+          path: |
+            dist/macos/heiccy-*-arm64.dmg
+            dist/macos/heiccy-*-arm64.dmg.sha256
+            dist/macos/heiccy-codec-sources-*.tar.gz
+            dist/macos/heiccy-codec-sources-*.tar.gz.sha256
+            dist/macos/release-manifest-*.json
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 동일 공개 커밋의 앱 draft 릴리스
+    needs: validate
+    # 기본 비활성. 승인된 환경과 저장소 변수로 macos-vVERSION push만 활성화한다.
+    # 과거 문서의 앱 vVERSION은 snapshot 방식의 표기이며 새 태그로 사용하지 않는다.
+    # PR·브랜치·수동 실행·pypi-vVERSION은 이 job을 실행하지 않는다.
+    if: >-
+      github.repository == 'jaehunshin-git/heiccy' &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/macos-v') &&
+      needs.validate.result == 'success' &&
+      vars.HEICCY_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: public-release
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: heiccy-public-release
+      cancel-in-progress: false
+    env:
+      SOURCE_REPOSITORY: ${{ github.repository }}
+      SOURCE_COMMIT: ${{ github.sha }}
+      SOURCE_TAG: ${{ github.ref_name }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: 동일 공개 소스 checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 태그의 동일 커밋과 main 병합 확인
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git rev-parse --verify "refs/tags/$SOURCE_TAG^{commit}")" = "$SOURCE_COMMIT"
+          git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main
+      - name: macOS 15의 검증 원본 다운로드
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: heiccy-macos-15-arm64
+          path: build/release-artifacts/macos-15
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: macOS 26의 검증 원본 다운로드
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: heiccy-macos-26-arm64
+          path: build/release-artifacts/macos-26
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: 태그·버전·두 OS 출처와 모든 배포 해시 검증
+        id: verified
+        run: |
+          set -euo pipefail
+          python packaging/release/verify_release.py verify \
+            --macos-15 build/release-artifacts/macos-15/macos \
+            --macos-26 build/release-artifacts/macos-26/macos \
+            --tag "$SOURCE_TAG" --source-repository "$SOURCE_REPOSITORY" \
+            --source-commit "$SOURCE_COMMIT" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
+            --output "$GITHUB_OUTPUT" --notes-output build/release-notes.md
+      - name: 동일 공개 커밋 provenance 생성
+        env:
+          MANIFEST_15: ${{ steps.verified.outputs.manifest_15 }}
+          MANIFEST_26: ${{ steps.verified.outputs.manifest_26 }}
+        run: |
+          set -euo pipefail
+          python packaging/release/verify_release.py provenance \
+            --manifest-15 "$MANIFEST_15" --manifest-26 "$MANIFEST_26" \
+            --public-commit "$SOURCE_COMMIT" --output build/release-source.json
+      - name: 원격 태그 커밋 확인과 기존 draft 덮어쓰기 거부
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_TAG: ${{ steps.verified.outputs.public_tag }}
+        run: |
+          set -euo pipefail
+          test "$PUBLIC_TAG" = "$SOURCE_TAG"
+          # 일반 태그와 주석 태그 모두 최종 커밋을 비교한다. 태그를 생성하지 않는다.
+          remote_refs="$(git ls-remote --exit-code --tags origin "refs/tags/$PUBLIC_TAG" "refs/tags/$PUBLIC_TAG^{}")"
+          actual="$(printf '%s\n' "$remote_refs" | awk -v tag="refs/tags/$PUBLIC_TAG" \
+            '$2 == tag {commit = $1} $2 == tag "^{}" {peeled = $1} END {print (peeled ? peeled : commit)}')"
+          test "$actual" = "$SOURCE_COMMIT"
+          releases="$(gh api --paginate "repos/$SOURCE_REPOSITORY/releases" --jq '.[].tag_name')"
+          if printf '%s\n' "$releases" | grep -Fxq "$PUBLIC_TAG"; then
+            echo '해당 태그의 릴리스 또는 draft가 이미 있습니다. 덮어쓰지 않습니다.' >&2
+            exit 1
+          fi
+      - name: 검증한 원본의 draft 생성
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_TAG: ${{ steps.verified.outputs.public_tag }}
+          DMG: ${{ steps.verified.outputs.dmg }}
+          CHECKSUM: ${{ steps.verified.outputs.checksum }}
+          CODEC_SOURCES: ${{ steps.verified.outputs.codec_sources }}
+          CODEC_CHECKSUM: ${{ steps.verified.outputs.codec_checksum }}
+          MANIFEST_15: ${{ steps.verified.outputs.manifest_15 }}
+          MANIFEST_26: ${{ steps.verified.outputs.manifest_26 }}
+        run: |
+          set -euo pipefail
+          # 기존 태그에 draft만 만든다. 소스·커밋·태그·main은 쓰지 않는다.
+          gh release create "$PUBLIC_TAG" "$DMG" "$CHECKSUM" \
+            "$MANIFEST_15" "$MANIFEST_26" "$CODEC_SOURCES" "$CODEC_CHECKSUM" build/release-source.json \
+            --repo "$SOURCE_REPOSITORY" --verify-tag --target "$SOURCE_COMMIT" --draft \
+            --title "heiccy $PUBLIC_TAG" --notes-file build/release-notes.md

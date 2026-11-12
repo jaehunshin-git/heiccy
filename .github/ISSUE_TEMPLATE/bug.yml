@@ -1,6 +1,7 @@
 name: 버그 신고
-description: heiccy 앱 또는 CLI/TUI의 오류를 알려 주세요.
+description: heiccy macOS 앱의 오류를 알려 주세요.
 title: "[버그] "
+labels: [bug]
 body:
   - type: markdown
     attributes:
@@ -11,14 +12,13 @@ body:
       label: 사용 구성 요소
       options:
         - macOS 앱
-        - CLI/TUI
     validations:
       required: true
   - type: input
     id: environment
     attributes:
       label: 실행 환경
-      description: 제품 버전, macOS 버전, CPU 종류와 CLI/TUI의 경우 Python 버전을 적어 주세요.
+      description: 앱 버전, macOS 버전과 CPU 종류를 적어 주세요.
     validations:
       required: true
   - type: textarea
@@ -32,4 +32,4 @@ body:
     id: diagnostics
     attributes:
       label: 추가 정보
-      description: 개인정보를 제거한 오류 메시지나 화면을 첨부해 주세요.
+      description: 개인정보를 제거한 오류 메시지나 화면을 첨부해 주세요. 정보가 없으면 비워 두거나 해당 없음과 이유를 적어 주세요.

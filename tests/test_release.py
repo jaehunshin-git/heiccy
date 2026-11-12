@@ -4,16 +4,20 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import plistlib
+import re
+import shlex
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
-PUBLIC_SHA = "b" * 40
+REPOSITORY = "jaehunshin-git/heiccy"
 VERSION = "1.0.0"
 
 
@@ -53,14 +57,11 @@ def artifacts(tmp_path, validator):
         directory.mkdir()
         # OS별 DMG 해시가 달라도 성공해야 한다. 게시 대상은 반드시 15 원본이다.
         write_asset(directory / f"heiccy-{VERSION}-arm64.dmg", runner.encode())
-        write_asset(
-            directory / f"heiccy-codec-sources-{VERSION}.tar.gz", b"codec fixture"
-        )
         validator.create_manifest(
             directory,
             plist,
             runner=runner,
-            source_repository="internal/build",
+            source_repository=REPOSITORY,
             source_commit=SHA,
             source_ref=f"refs/tags/macos-v{VERSION}",
             run_id="123",
@@ -74,7 +75,7 @@ def verify(validator, artifacts, **changes):
     directories, plist = artifacts
     arguments = {
         "tag": f"macos-v{VERSION}",
-        "source_repository": "internal/build",
+        "source_repository": REPOSITORY,
         "source_commit": SHA,
         "run_id": "123",
         "run_attempt": "1",
@@ -94,19 +95,22 @@ def test_two_os_pass_selects_identical_macos_15_files(validator, artifacts):
         for path in directory.iterdir()
     }
     result = verify(validator, artifacts)
-    assert result["public_tag"] == "v1.0.0"
+    assert result["public_tag"] == "macos-v1.0.0"
     assert Path(result["dmg"]).read_bytes() == b"macos-15"
-    assert Path(result["codec_sources"]).name == "heiccy-codec-sources-1.0.0.tar.gz"
+    assert set(result) == {
+        "version", "public_tag", "dmg", "checksum", "manifest_15", "manifest_26"
+    }
+    manifest = json.loads(manifest_path(artifacts).read_text())
+    assert manifest["schema_version"] == 2
+    assert manifest["engine"] == "swift-imageio"
+    assert "codec_sources" not in manifest
     assert Path(result["manifest_26"]) == manifest_path(artifacts, "macos-26")
     assert all(path.read_bytes() == contents for path, contents in before.items())
 
 
 @pytest.mark.parametrize("runner", ["macos-15", "macos-26"])
-@pytest.mark.parametrize(
-    "name", ["heiccy-1.0.0-arm64.dmg", "heiccy-codec-sources-1.0.0.tar.gz"]
-)
-def test_tampered_assets_fail_for_either_os(validator, artifacts, runner, name):
-    (artifacts[0][runner] / name).write_bytes(b"tampered")
+def test_tampered_assets_fail_for_either_os(validator, artifacts, runner):
+    (artifacts[0][runner] / "heiccy-1.0.0-arm64.dmg").write_bytes(b"tampered")
     with pytest.raises(ValueError, match="SHA-256 불일치"):
         verify(validator, artifacts)
 
@@ -128,7 +132,15 @@ def test_checksum_hash_filename_and_extra_lines_rejected(
 
 
 @pytest.mark.parametrize(
-    "tag", ["v1.0.0", "v0.3.0", "macos-v0.3.0", "macos-v1.0.0-extra"]
+    "tag",
+    [
+        "v1.0.0",
+        "v0.3.0",
+        "pypi-v0.3.0",
+        "pypi-v1.0.0",
+        "macos-v0.3.0",
+        "macos-v1.0.0-extra",
+    ],
 )
 def test_python_and_mismatched_tags_never_release(validator, artifacts, tag):
     with pytest.raises(ValueError, match="태그와 앱 버전"):
@@ -153,19 +165,23 @@ def test_different_source_or_ci_run_rejected(validator, artifacts, field, value)
     "path,value",
     [
         (("schema_version",), True),
-        (("schema_version",), 2),
+        (("schema_version",), 1),
+        (("schema_version",), 3),
+        (("engine",), "python-pillow"),
+        (("engine",), None),
         (("app_version",), "0.3.0"),
         (("app_version",), "01.0.0"),
         (("source_commit",), "short"),
         (("source_commit",), "A" * 40),
+        (("source_repository",), "internal/build"),
+        (("source_repository",), "other/repo"),
+        (("source_repository",), REPOSITORY + "\n"),
         (("artifact",), []),
         (("codec_sources",), None),
         (("provenance",), "bad"),
         (("artifact", "name"), "../heiccy-1.0.0-arm64.dmg"),
         (("artifact", "name"), "heiccy-0.3.0-arm64.dmg"),
         (("artifact", "sha256"), "g" * 64),
-        (("codec_sources", "name"), "heiccy-codec-sources-0.3.0.tar.gz"),
-        (("codec_sources", "sha256"), 123),
         (("provenance", "runner"), "macos-26"),
         (("provenance", "architecture"), "x86_64"),
         (("provenance", "workflow"), ".github/workflows/other.yml"),
@@ -194,7 +210,7 @@ def test_malformed_json_rejected(validator, artifacts, contents):
         verify(validator, artifacts)
 
 
-@pytest.mark.parametrize("field", ["source_commit", "codec_sources", "provenance"])
+@pytest.mark.parametrize("field", ["engine", "source_commit", "provenance"])
 def test_missing_manifest_fields_rejected(validator, artifacts, field):
     target = manifest_path(artifacts)
     manifest = json.loads(target.read_text())
@@ -215,11 +231,20 @@ def test_missing_second_os_fails(validator, artifacts):
 
 
 @pytest.mark.parametrize(
-    "extra", ["extra.dmg", "extra.dmg.sha256", "heiccy-codec-sources-2.0.0.tar.gz"]
+    "extra", ["extra.dmg", "extra.dmg.sha256"]
 )
 def test_ambiguous_asset_names_fail(validator, artifacts, extra):
     (artifacts[0]["macos-15"] / extra).write_bytes(b"extra")
     with pytest.raises(ValueError, match="중복"):
+        verify(validator, artifacts)
+
+
+@pytest.mark.parametrize("runner", ["macos-15", "macos-26"])
+@pytest.mark.parametrize("suffix", [".tar.gz", ".tar.gz.sha256"])
+def test_native_release_rejects_stale_codec_assets(validator, artifacts, runner, suffix):
+    stale = artifacts[0][runner] / f"heiccy-codec-sources-{VERSION}{suffix}"
+    stale.write_bytes(b"obsolete codec distribution")
+    with pytest.raises(ValueError, match="코덱 소스 산출물"):
         verify(validator, artifacts)
 
 
@@ -242,7 +267,7 @@ def test_manifest_creation_refuses_overwrite(validator, artifacts):
             directories["macos-15"],
             plist,
             runner="macos-15",
-            source_repository="internal/build",
+            source_repository=REPOSITORY,
             source_commit=SHA,
             source_ref="refs/tags/macos-v1.0.0",
             run_id="123",
@@ -272,7 +297,7 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
         "--tag",
         "macos-v1.0.0",
         "--source-repository",
-        "internal/build",
+        REPOSITORY,
         "--source-commit",
         SHA,
         "--run-id",
@@ -290,8 +315,9 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
         command, capture_output=True, text=True, timeout=10, check=False
     )
     assert result.returncode == 0, result.stderr
-    assert "public_tag=v1.0.0\n" in output.read_text()
-    assert "비공개 빌드 저장소의 SHA" in body.read_text()
+    assert "public_tag=macos-v1.0.0\n" in output.read_text()
+    assert "공개 source_commit" in body.read_text()
+    assert "macos-v1.0.0" in body.read_text()
     assert SHA in body.read_text()
     record = tmp_path / "release-source.json"
     result = subprocess.run(
@@ -304,7 +330,7 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
             "--manifest-26",
             str(manifest_path(artifacts, "macos-26")),
             "--public-commit",
-            PUBLIC_SHA,
+            SHA,
             "--output",
             str(record),
         ],
@@ -315,9 +341,13 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
     )
     assert result.returncode == 0, result.stderr
     data = json.loads(record.read_text())
+    assert data["schema_version"] == 2
+    assert data["engine"] == "swift-imageio"
+    assert all(manifest["engine"] == "swift-imageio" for manifest in data["build_manifests"])
     assert data["source_commit"] == SHA
-    assert data["public_source_commit"] == PUBLIC_SHA
+    assert data["public_source_commit"] == SHA
     assert data["public_repository"] == "jaehunshin-git/heiccy"
+    assert data["public_tag"] == "macos-v1.0.0"
     assert len(data["build_manifests"]) == 2
     output.unlink()
     body.unlink()
@@ -330,58 +360,282 @@ def test_cli_prepares_notes_outputs_and_public_provenance(
     assert not output.exists() and not body.exists()
 
 
-def test_actual_exporter_snapshot_interoperates(validator, tmp_path):
-    exporter = load_script("export_public")
-    source = tmp_path / "source"
-    source.mkdir()
-    # 실제 exporter의 필수 허용 목록으로 작은 Git 저장소를 만든다.
-    for name in exporter.REQUIRED:
-        target = source / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("공개 테스트 파일\n")
-    write_plist(source / "packaging/macos/Info.plist")
-    (source / "pyproject.toml").write_text(
-        '[project]\nname = "fixture"\nversion = "0.3.0"\nreadme = "README.pypi.md"\n'
+def provenance(validator, artifacts, output, **changes):
+    arguments = {"public_commit": SHA, "output": output}
+    arguments.update(changes)
+    validator.create_provenance(
+        manifest_path(artifacts), manifest_path(artifacts, "macos-26"), **arguments
     )
-    (source / "docs/releases").mkdir()
-    (source / "docs/releases/v1.0.0.md").write_text("# 릴리스\n")
-    (source / "uv.lock").write_text("version = 1\n")
-    for arguments in [
-        ["init", "--initial-branch=main"],
-        ["add", "."],
+
+
+def test_public_commit_cannot_differ_from_build(validator, artifacts, tmp_path):
+    output = tmp_path / "release-source.json"
+    with pytest.raises(ValueError, match="공개 커밋과 빌드 SHA 불일치"):
+        provenance(validator, artifacts, output, public_commit="b" * 40)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("runner", ["macos-15", "macos-26"])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("source_repository", "internal/build"),
+        ("source_commit", "b" * 40),
+        ("app_version", "0.3.0"),
+        ("runner", "macos-15"),
+        ("source_ref", "refs/tags/v1.0.0"),
+        ("source_ref", "refs/pull/1/merge"),
+        ("run_id", "124"),
+        ("run_attempt", "2"),
+    ],
+)
+def test_provenance_rejects_forged_builds(
+    validator, artifacts, tmp_path, runner, field, value
+):
+    if field == "runner":
+        value = "macos-26" if runner == "macos-15" else "macos-15"
+    target = manifest_path(artifacts, runner)
+    manifest = json.loads(target.read_text())
+    section = manifest if field in manifest else manifest["provenance"]
+    section[field] = value
+    target.write_text(json.dumps(manifest))
+    output = tmp_path / "release-source.json"
+    with pytest.raises(ValueError):
+        provenance(validator, artifacts, output)
+    assert not output.exists()
+
+
+def test_matching_foreign_repository_is_still_rejected(validator, artifacts):
+    for runner in validator.RUNNERS:
+        target = manifest_path(artifacts, runner)
+        manifest = json.loads(target.read_text())
+        manifest["source_repository"] = "other/repo"
+        target.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="소스 저장소 불일치"):
+        verify(validator, artifacts, source_repository="other/repo")
+
+
+def test_provenance_refuses_overwrite_and_symlink(validator, artifacts, tmp_path):
+    output = tmp_path / "release-source.json"
+    provenance(validator, artifacts, output)
+    before = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        provenance(validator, artifacts, output)
+    assert output.read_bytes() == before
+    link = tmp_path / "link.json"
+    link.symlink_to(output)
+    with pytest.raises(FileExistsError):
+        provenance(validator, artifacts, link)
+    assert output.read_bytes() == before
+
+
+@pytest.fixture
+def workflow():
+    path = ROOT / ".github/workflows/macos.yml"
+    if not path.is_file():
+        pytest.skip("sdist에는 Actions 워크플로가 포함되지 않습니다.")
+    return path.read_text()
+
+
+def workflow_step(workflow, name):
+    match = re.search(
+        rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - |\Z)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None
+    return textwrap.dedent(match[1].split("        run: |\n", 1)[1])
+
+
+def test_workflow_verifies_flat_downloaded_artifacts(workflow, artifacts, tmp_path):
+    directories, _ = artifacts
+    write_plist(tmp_path / "packaging/macos/Info.plist")
+    notes = tmp_path / "docs/releases" / f"v{VERSION}.md"
+    notes.parent.mkdir(parents=True)
+    notes.write_bytes((ROOT / "docs/releases" / notes.name).read_bytes())
+    for runner, source in directories.items():
+        downloaded = tmp_path / "build/release-artifacts" / runner
+        downloaded.mkdir(parents=True)
+        for asset in source.iterdir():
+            (downloaded / asset.name).write_bytes(asset.read_bytes())
+    script = workflow_step(workflow, "태그·버전·두 OS 출처와 모든 배포 해시 검증")
+    script = script.replace(
+        "python packaging/release/verify_release.py",
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'packaging/release/verify_release.py'))}",
+    )
+    output = tmp_path / "outputs"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "SOURCE_TAG": f"macos-v{VERSION}",
+            "SOURCE_REPOSITORY": REPOSITORY,
+            "SOURCE_COMMIT": SHA,
+            "RUN_ID": "123",
+            "RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"public_tag=macos-v{VERSION}" in output.read_text()
+    assert (tmp_path / "build/release-notes.md").is_file()
+
+
+def test_workflow_pr_permissions_and_release_boundary(workflow):
+    validate, release = workflow.split("  release:\n", 1)
+    assert "pull_request:\n" in validate
+    assert "pull_request_target" not in workflow
+    assert "secrets." not in workflow and "HEICCY_RELEASE_TOKEN" not in workflow
+    assert "contents: write" not in validate
+    assert "permissions:\n  contents: read\n" in validate
+    assert "    permissions:\n      contents: read\n" in validate
+    assert "    permissions:\n      contents: write\n      actions: read\n" in release
+    assert workflow.count("contents: write") == 1
+    assert "environment: public-release" in release
+    assert "needs: validate" in release
+    for condition in (
+        "github.repository == 'jaehunshin-git/heiccy'",
+        "github.event_name == 'push'",
+        "startsWith(github.ref, 'refs/tags/macos-v')",
+        "needs.validate.result == 'success'",
+        "vars.HEICCY_RELEASE_ENABLED == 'true'",
+    ):
+        assert condition in release
+    checkouts = re.findall(
+        r"- (?:name:.*\n\s+)?uses: actions/checkout@[^\n]+\n(.*?)(?=^      - )",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert len(checkouts) == 2
+    assert all("persist-credentials: false" in checkout for checkout in checkouts)
+    assert "export_public" not in workflow
+    assert not re.search(
+        r"\bgit\s+(?:[^\n]*\s)?(?:commit|push|tag|config|add)\b", workflow
+    )
+    assert "twine" not in workflow and "pypa/gh-action-pypi-publish" not in workflow
+    assert "tags: ['macos-v*']" in validate
+    for product_artifact in ("pypi-v", "dist/*.whl", "dist/*.tar.gz", "validate_python_dist", "python -m build"):
+        assert product_artifact not in workflow
+    assert not re.search(r"\$\{\{\s*github\.event\.(?:pull_request|issue)", workflow)
+    assert release.count("github-token: ${{ github.token }}") == 2
+    assert release.count("run-id: ${{ github.run_id }}") == 2
+    assert release.count("repository: ${{ github.repository }}") == 2
+
+
+@pytest.fixture
+def mocked_cli(tmp_path):
+    """워크플로의 실제 shell을 실행하되 Git·GitHub 원격 쓰기는 모의 도구로 막는다."""
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    log = tmp_path / "commands.jsonl"
+    stub = f"#!{sys.executable}\n" + textwrap.dedent("""\
+        import json
+        import os
+        import sys
+        from pathlib import Path
+        name = Path(sys.argv[0]).name
+        with open(os.environ["MOCK_LOG"], "a") as stream:
+            stream.write(json.dumps([name, *sys.argv[1:]]) + "\\n")
+        if name == "git" and sys.argv[1:4] == ["ls-remote", "--exit-code", "--tags"]:
+            print(os.environ["MOCK_REFS"])
+            sys.exit(0 if os.environ["MOCK_REFS"] else 2)
+        if name == "gh" and sys.argv[1] == "api":
+            print(os.environ.get("MOCK_RELEASES", ""))
+            sys.exit(0)
+        if name == "gh" and sys.argv[1:3] == ["release", "create"]:
+            sys.exit(0)
+        sys.exit("예상하지 못한 원격 명령입니다.")
+    """)
+    for name in ("git", "gh"):
+        target = binary / name
+        target.write_text(stub)
+        target.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{binary}{os.pathsep}{os.environ['PATH']}",
+        "MOCK_LOG": str(log),
+        "SOURCE_REPOSITORY": REPOSITORY,
+        "SOURCE_COMMIT": SHA,
+        "SOURCE_TAG": f"macos-v{VERSION}",
+        "PUBLIC_TAG": f"macos-v{VERSION}",
+        "GH_TOKEN": "fixture-token",
+    }
+    return environment, log
+
+
+@pytest.mark.parametrize("annotated", [False, True])
+@pytest.mark.parametrize(
+    "change", ["none", "moved", "missing", "existing-draft", "wrong-tag"]
+)
+def test_remote_tag_and_draft_guard(workflow, mocked_cli, tmp_path, annotated, change):
+    environment, log = mocked_cli
+    tag = "refs/tags/macos-v1.0.0"
+    refs = f"{SHA}\t{tag}"
+    if annotated:
+        refs = f"{'b' * 40}\t{tag}\n{SHA}\t{tag}^{{}}"
+    if change == "moved":
+        refs = refs.replace(SHA, "c" * 40)
+    if change == "missing":
+        refs = ""
+    if change == "wrong-tag":
+        environment["PUBLIC_TAG"] = "macos-v1.0.1"
+    environment["MOCK_REFS"] = refs
+    environment["MOCK_RELEASES"] = (
+        "macos-v1.0.0"
+        if change == "existing-draft"
+        else "macos-v1.0.00\n$(touch escaped)"
+    )
+    result = subprocess.run(
         [
+            "bash",
             "-c",
-            "user.name=테스트",
-            "-c",
-            "user.email=test@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-m",
-            "테스트 스냅샷",
+            workflow_step(workflow, "원격 태그 커밋 확인과 기존 draft 덮어쓰기 거부"),
         ],
-    ]:
-        subprocess.run(
-            ["git", "-C", str(source), *arguments],
-            check=True,
-            capture_output=True,
-            timeout=10,
-        )
-    commit = subprocess.check_output(
-        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True, timeout=10
-    ).strip()
-    destination = tmp_path / "public"
-    exporter.export_snapshot(destination, commit, source_root=source)
-    validator.verify_snapshot(destination, source_commit=commit, version=VERSION)
-    with pytest.raises(ValueError, match="소스 SHA 불일치"):
-        validator.verify_snapshot(destination, source_commit=SHA, version=VERSION)
-    lock = destination / "uv.lock"
-    lock.write_text("version = 2\n")
-    with pytest.raises(ValueError, match="공개 소스 SHA-256 불일치: uv.lock"):
-        validator.verify_snapshot(destination, source_commit=commit, version=VERSION)
-    lock.write_text("version = 1\n")
-    workflows = destination / ".github/workflows"
-    workflows.mkdir()
-    (workflows / "internal.yml").write_text("name: 내부\n")
-    with pytest.raises(ValueError, match="이슈 템플릿만"):
-        validator.verify_snapshot(destination, source_commit=commit, version=VERSION)
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) == (change == "none"), result.stderr
+    assert not (tmp_path / "escaped").exists()
+    if log.exists():
+        commands = [json.loads(line) for line in log.read_text().splitlines()]
+        assert all(command[1] in {"ls-remote", "api"} for command in commands)
+
+
+def test_draft_creation_uses_existing_tag_and_same_commit(
+    workflow, mocked_cli, tmp_path
+):
+    environment, log = mocked_cli
+    for field in (
+        "DMG",
+        "CHECKSUM",
+        "MANIFEST_15",
+        "MANIFEST_26",
+    ):
+        environment[field] = f"fixture {field}"
+    result = subprocess.run(
+        ["bash", "-c", workflow_step(workflow, "검증한 원본의 draft 생성")],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[:4] == ["gh", "release", "create", "macos-v1.0.0"]
+    assert command[command.index("--repo") + 1] == REPOSITORY
+    assert command[command.index("--target") + 1] == SHA
+    assert "--draft" in command and "--verify-tag" in command
+    assert "--clobber" not in command
+    assert "fixture DMG" in command and "fixture CHECKSUM" in command
+    assert not any("CODEC" in argument for argument in command)
+    assert "codec_sources" not in workflow and "codec_checksum" not in workflow
+    assert "collect_codec_sources.py" not in workflow

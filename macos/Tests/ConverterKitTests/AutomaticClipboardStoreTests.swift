@@ -82,14 +82,15 @@ final class AutomaticClipboardStoreTests: XCTestCase {
         }
     }
 
-    private static func photosItem(source: URL, raw: Data,
+    private static func photosItem(source: URL, raw: Data? = nil,
                                    urlTypes: [NSPasteboard.PasteboardType] = [.fileURL, .URL],
                                    mediaType: Int = 1) throws -> NSPasteboardItem {
         let asset = try PropertyListSerialization.data(fromPropertyList: ["mediaType": mediaType, "mediaSubtypes": 0],
                                                        format: .binary, options: 0)
-        return item(urlTypes.map { ($0, Data(source.absoluteString.utf8)) } + [
-            (.init(UTType.heic.identifier), raw),
-            (.init("com.apple.photos.object-reference.asset"), asset)])
+        var values = urlTypes.map { ($0, Data(source.absoluteString.utf8)) }
+        if let raw { values.append((.init(UTType.heic.identifier), raw)) }
+        values.append((.init("com.apple.photos.object-reference.asset"), asset))
+        return item(values)
     }
 
     private static func image(_ type: UTType, red: CGFloat = 0.2) throws -> Data {
@@ -114,6 +115,23 @@ final class AutomaticClipboardStoreTests: XCTestCase {
         try (board.pasteboardItems ?? []).map { item in
             try item.types.map { Representation(type: $0.rawValue, data: try XCTUnwrap(item.data(forType: $0))) }
         }
+    }
+
+    // Photos만 소유 입력 URL로 정규화한다. 나머지 항목·표현의 순서와 바이트는 정확히 비교한다.
+    private func normalizedPhotosRestore(_ original: [[Representation]], index: Int, input: URL, raw: Data,
+                                         privateTypes: [NSPasteboard.PasteboardType] = []) -> [[Representation]] {
+        var expected = original
+        let removed = ["com.apple.photos.object-reference.asset"] + privateTypes.map(\.rawValue)
+        expected[index] = original[index].filter { !removed.contains($0.type) }.map { value in
+            if value.type == NSPasteboard.PasteboardType.fileURL.rawValue || value.type == NSPasteboard.PasteboardType.URL.rawValue {
+                return Representation(type: value.type, data: Data(input.absoluteString.utf8))
+            }
+            return value
+        }
+        if !expected[index].contains(where: { $0.type == UTType.heic.identifier }) {
+            expected[index].append(Representation(type: UTType.heic.identifier, data: raw))
+        }
+        return expected
     }
 
     @MainActor
@@ -171,6 +189,66 @@ final class AutomaticClipboardStoreTests: XCTestCase {
         XCTAssertEqual(try contents(f.board), original)
         XCTAssertTrue(outputs.allSatisfy { !f.files.fileExists(atPath: $0.path) })
         XCTAssertTrue(f.files.fileExists(atPath: source.path))
+    }
+
+    @MainActor
+    func testMixedFinderHEICAndPhotosJPEGPreserveEveryJPEGRepresentationAndOrder() throws {
+        let jpeg = try Self.image(.jpeg)
+        let jpegType = NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        let assetType = NSPasteboard.PasteboardType("com.apple.photos.object-reference.asset")
+        let asset = try PropertyListSerialization.data(fromPropertyList: ["mediaType": 1, "mediaSubtypes": 0],
+                                                       format: .binary, options: 0)
+        let dynamic = try XCTUnwrap(UTType(tag: "application/x-heiccy-photos-jpeg-reference", tagClass: .mimeType, conformingTo: nil))
+        XCTAssertTrue(dynamic.isDynamic)
+        let dynamicType = NSPasteboard.PasteboardType(dynamic.identifier)
+        let privateType = NSPasteboard.PasteboardType("com.apple.photos.private-jpeg-reference")
+        let captionType = NSPasteboard.PasteboardType("test.heic.jpeg-caption")
+        // 생략 후보를 일반 표현 사이에 배치해 복원 후 타입 순서까지 검사한다.
+        let jpegValues: [(NSPasteboard.PasteboardType, Data)] = [
+            (dynamicType, Data([0, 255, 128, 1])), (.string, Data("Photos JPEG 설명\n두 번째 줄".utf8)),
+            (jpegType, jpeg), (privateType, Data("Photos 전용 JPEG 참조".utf8)),
+            (assetType, asset), (captionType, Data([255, 0, 17, 128])),
+        ]
+        for photosFirst in [false, true] {
+            let f = try Fixture(); defer { f.close() }
+            let source = try f.source()
+            let sourceBytes = try Data(contentsOf: source)
+            let finder = Self.item([(.fileURL, Data(source.absoluteString.utf8)),
+                                    (.URL, Data(source.absoluteString.utf8)), (.string, Data("Finder 설명".utf8))])
+            let photos = Self.item(jpegValues)
+            f.put(photosFirst ? [photos, finder] : [finder, photos])
+            let original = try contents(f.board)
+            let photoIndex = photosFirst ? 0 : 1
+            let finderIndex = photosFirst ? 1 : 0
+            let expectedJPEG = jpegValues.map { Representation(type: $0.0.rawValue, data: $0.1) }
+            XCTAssertEqual(original[photoIndex], expectedJPEG)
+            let generation = f.board.changeCount
+            let snapshot = try f.store.capture()
+            XCTAssertEqual(snapshot.targets.map(\.source), [source], "Photos JPEG는 변환 대상이 아닙니다.")
+            XCTAssertEqual(snapshot.files.map(\.isHEIC), photosFirst ? [false, true] : [true, false])
+            let id = UUID().uuidString
+            let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+            XCTAssertEqual(p.inputs.count, 1)
+            XCTAssertEqual(try Data(contentsOf: p.inputs[0]), sourceBytes)
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+            let result = try f.output(p.outputDirectory)
+            _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [result])
+            let published = try contents(f.board)
+            XCTAssertEqual(published.count, 2)
+            XCTAssertEqual(published[photoIndex], expectedJPEG, "비변환 JPEG의 asset·dynamic·private·설명 바이트와 순서를 모두 유지해야 합니다.")
+            let publishedFinder = try XCTUnwrap(f.board.pasteboardItems?[finderIndex])
+            XCTAssertEqual(publishedFinder.string(forType: .fileURL), result.absoluteString)
+            XCTAssertEqual(publishedFinder.string(forType: .URL), result.absoluteString)
+            XCTAssertEqual(publishedFinder.data(forType: .png), try Data(contentsOf: result))
+            XCTAssertEqual(publishedFinder.string(forType: .string), "Finder 설명")
+            try f.store.shutdown()
+            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try contents(f.board)[photoIndex], expectedJPEG)
+            XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
+            XCTAssertFalse(f.files.fileExists(atPath: p.inputs[0].path))
+            XCTAssertFalse(f.files.fileExists(atPath: result.path))
+        }
     }
 
     @MainActor
@@ -322,96 +400,147 @@ final class AutomaticClipboardStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testPhotosLibraryURLRejectsEntireMixedCaptureWithoutFileLookupOrPublication() throws {
-        // named pasteboard의 안전 계약만 검사한다. 실제 Photos/종료 시 URL 유실을 재현하는 테스트가 아니다.
-        let cases: [(library: String, urlTypes: [NSPasteboard.PasteboardType], mediaType: Int, escaped: Bool)] = [
-            ("합성.photoslibrary", [.fileURL], 1, false),
-            ("합성.PHOTOSLIBRARY", [.URL], 1, false),
-            ("합성.PhOtOsLiBrArY", [.fileURL, .URL], 1, false),
-            ("공백 있는.photoslibrary", [.fileURL, .URL], 1, true),
-            ("영상.photoslibrary", [.fileURL], 2, false),
-            ("영상.PHOTOSLIBRARY", [.URL], 2, true),
+    func testPhotosLibraryRawSupportsMixedCapturePublicationAndNormalizedRestoration() throws {
+        let cases: [(library: String, urlTypes: [NSPasteboard.PasteboardType], escaped: Bool)] = [
+            ("합성.photoslibrary", [.fileURL], false),
+            ("합성.PHOTOSLIBRARY", [.URL], false),
+            ("합성.PhOtOsLiBrArY", [.fileURL, .URL], false),
+            ("공백 있는.photoslibrary", [.fileURL, .URL], true),
         ]
         let raw = try Self.image(.heic)
+        let privateType = NSPasteboard.PasteboardType("com.apple.photos.private-source-url")
+        let dynamic = try XCTUnwrap(UTType(tag: "application/x-heiccy-photos-private-reference", tagClass: .mimeType, conformingTo: nil))
+        XCTAssertTrue(dynamic.isDynamic)
+        let dynamicType = NSPasteboard.PasteboardType(dynamic.identifier)
+        let captionType = NSPasteboard.PasteboardType("test.heic.caption")
         for entry in cases {
             for photosFirst in [false, true] {
-                var lookups: [URL] = []
-                var writes = 0
-                let f = try Fixture(writer: { _, _ in writes += 1; return false },
-                                    metadataReader: { lookups.append($0); return nil })
+                var sourceURL: URL?
+                var sourceLookups: [URL] = []
+                let f = try Fixture(metadataReader: { url in
+                    if url == sourceURL { sourceLookups.append(url); return nil }
+                    return Self.metadata(url)
+                })
                 defer { f.close() }
-                let source = f.sandbox.appendingPathComponent(entry.library)
-                    .appendingPathComponent("originals/합성 원본.\(entry.mediaType == 2 ? "mov" : "heic")")
+                let source = f.sandbox.appendingPathComponent(entry.library).appendingPathComponent("originals/합성 원본.heic")
+                sourceURL = source
                 try f.files.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let sourceBytes = Data("테스트가 만든 보관함 원본".utf8)
+                let sourceBytes = Data("raw와 다른 원본 파일".utf8)
                 try sourceBytes.write(to: source)
-                let photos = try Self.photosItem(source: source, raw: raw,
-                                                 urlTypes: entry.urlTypes, mediaType: entry.mediaType)
+                let photos = try Self.photosItem(source: source, raw: raw, urlTypes: entry.urlTypes)
                 if entry.escaped {
                     let escaped = source.absoluteString.replacingOccurrences(of: ".photoslibrary", with: ".photos%6Cibrary")
-                        .replacingOccurrences(of: ".PHOTOSLIBRARY", with: ".PHOTOS%4CIBRARY")
                     for type in entry.urlTypes { XCTAssertTrue(photos.setString(escaped, forType: type)) }
+                }
+                XCTAssertTrue(photos.setData(Data("설명".utf8), forType: .string))
+                XCTAssertTrue(photos.setData(Data([0, 255, 1]), forType: captionType))
+                for type in [privateType, dynamicType] {
+                    XCTAssertTrue(photos.setData(Data(source.absoluteString.utf8), forType: type))
                 }
                 let finderSource = try f.source()
                 let finderBytes = try Data(contentsOf: finderSource)
-                let finder = Self.item([(.fileURL, Data(finderSource.absoluteString.utf8))])
-                let text = Self.item([(.string, Data("보존할 텍스트".utf8)),
-                                      (.init("io.heic-converter.test.original"), Data([0, 255, 1, 128]))])
+                let finder = Self.item([(.fileURL, Data(finderSource.absoluteString.utf8)),
+                                        (.URL, Data(finderSource.absoluteString.utf8)), (.string, Data("Finder 설명".utf8))])
+                let text = Self.item([(.string, Data("중간 텍스트".utf8)), (captionType, Data([128, 0, 255]))])
                 f.put(photosFirst ? [photos, text, finder] : [finder, text, photos])
                 let original = try contents(f.board)
                 let generation = f.board.changeCount
-
-                for _ in 0..<2 {
-                    XCTAssertThrowsError(try f.store.capture()) { error in
-                        guard case AutomaticClipboardError.unrestorablePhotosLibraryURL = error else {
-                            return XCTFail("보관함 복구 안전성 오류가 필요합니다: \(error)")
-                        }
-                        XCTAssertEqual(error.localizedDescription,
-                            "Photos 보관함 원본 URL은 종료 후 복구를 보장할 수 없습니다. 원본을 내보낸 뒤 Finder에서 복사하세요.")
-                    }
-                }
-                try f.store.shutdown()
+                let photosIndex = photosFirst ? 0 : 2
+                let conversionIndex = photosFirst ? 0 : 1
+                let snapshot = try f.store.capture()
+                XCTAssertEqual(snapshot.targets.count, 2)
+                XCTAssertEqual(snapshot.files.map(\.isHEIC), [true, true])
+                XCTAssertNil(snapshot.files[conversionIndex].url)
+                XCTAssertNil(f.store.previewFiles()[conversionIndex].url)
+                let id = UUID().uuidString
+                let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+                XCTAssertEqual(p.inputs.count, 2)
+                let input = p.inputs[conversionIndex]
+                XCTAssertNotEqual(input, source)
+                XCTAssertEqual(try Data(contentsOf: input), raw)
                 XCTAssertEqual(f.board.changeCount, generation)
                 XCTAssertEqual(try contents(f.board), original)
-                XCTAssertTrue(lookups.isEmpty, "일반 HEIC가 먼저 있어도 어떤 파일 metadata도 조회하면 안 됩니다.")
-                XCTAssertEqual(writes, 0)
-                XCTAssertNil(f.store.ownedChangeCount)
-                XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+                let results = [try f.output(p.outputDirectory), try f.output(p.outputDirectory, "둘째.jpeg", type: .jpeg)]
+                _ = try f.store.publish(snapshot: snapshot, jobID: id, results: results)
+                let published = try XCTUnwrap(f.board.pasteboardItems)
+                XCTAssertEqual(published.count, 3)
+                let photo = published[photosIndex]
+                XCTAssertEqual(photo.string(forType: .fileURL), results[conversionIndex].absoluteString)
+                if entry.urlTypes.contains(.URL) { XCTAssertEqual(photo.string(forType: .URL), results[conversionIndex].absoluteString) }
+                for type in [NSPasteboard.PasteboardType("com.apple.photos.object-reference.asset"), privateType, dynamicType,
+                             NSPasteboard.PasteboardType(UTType.heic.identifier)] {
+                    XCTAssertFalse(photo.types.contains(type))
+                }
+                let resultType: NSPasteboard.PasteboardType = conversionIndex == 0 ? .png : .init(UTType.jpeg.identifier)
+                XCTAssertEqual(photo.data(forType: resultType), try Data(contentsOf: results[conversionIndex]))
+                XCTAssertNotNil(photo.data(forType: .tiff))
+                XCTAssertEqual(photo.data(forType: captionType), Data([0, 255, 1]))
+                XCTAssertEqual(photo.string(forType: .string), "설명")
+                XCTAssertEqual(try contents(f.board)[1], original[1])
+                XCTAssertEqual(try Data(contentsOf: input), raw)
+                XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
+                try f.store.shutdown()
+                XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: photosIndex, input: input, raw: raw,
+                                                                            privateTypes: [privateType, dynamicType]))
+                XCTAssertEqual(try Data(contentsOf: input), raw)
                 XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
                 XCTAssertEqual(try Data(contentsOf: finderSource), finderBytes)
+                XCTAssertTrue(sourceLookups.isEmpty)
+                f.store.discard(jobID: id)
+                try f.store.shutdown()
+                XCTAssertTrue(f.files.fileExists(atPath: input.path), "복구된 클립보드가 참조하는 입력은 유지해야 합니다.")
+                f.putText()
+                f.store.clipboardDidChange()
+                XCTAssertFalse(f.files.fileExists(atPath: input.path))
+                XCTAssertTrue(results.allSatisfy { !f.files.fileExists(atPath: $0.path) })
             }
         }
     }
 
     @MainActor
-    func testPhotosLibraryGuardChecksEveryURLBeforeRawOrAssetParsingAndHidesPreviewURL() throws {
+    func testPhotosUnknownMetadataAndMismatchedURLsFailWithoutSourceLookup() throws {
+        let raw = try Self.image(.heic)
+        let objects: [[String: Any]] = [[:], ["mediaType": 0], ["mediaType": 99], ["mediaType": true],
+                                      ["mediaType": 1.5], ["mediaType": "1"]]
+        let assets: [Data] = try objects.map {
+            try PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0)
+        } + [Data([0, 255])]
         for libraryType in [NSPasteboard.PasteboardType.fileURL, .URL] {
-            for mediaType in [1, 2, 99] {
+            for asset in assets {
                 var lookups: [URL] = []
-                let f = try Fixture(metadataReader: { lookups.append($0); return nil })
-                defer { f.close() }
-                let source = f.sandbox.appendingPathComponent("미생성.PhotosLibrary/originals/원본.\(mediaType == 2 ? "mov" : "heic")")
-                let photos = try Self.photosItem(source: source, raw: Data([0, 255]),
-                                                 urlTypes: [libraryType], mediaType: mediaType)
-                let otherType: NSPasteboard.PasteboardType = libraryType == .fileURL ? .URL : .fileURL
-                XCTAssertTrue(photos.setString(f.sandbox.appendingPathComponent("safe.heic").absoluteString, forType: otherType))
-                if mediaType == 99 {
-                    XCTAssertTrue(photos.setData(Data([0, 255]), forType: .init("com.apple.photos.object-reference.asset")))
-                }
+                let f = try Fixture(metadataReader: { lookups.append($0); return nil }); defer { f.close() }
+                let source = f.sandbox.appendingPathComponent("미생성.photoslibrary/originals/원본.heic")
+                let photos = try Self.photosItem(source: source, raw: raw, urlTypes: [libraryType])
+                XCTAssertTrue(photos.setData(asset, forType: .init("com.apple.photos.object-reference.asset")))
                 f.put([photos])
                 let original = try contents(f.board)
                 let generation = f.board.changeCount
-                XCTAssertThrowsError(try f.store.capture()) { error in
-                    guard case AutomaticClipboardError.unrestorablePhotosLibraryURL = error else {
-                        return XCTFail("raw나 asset 파싱보다 보관함 URL 검사가 먼저여야 합니다: \(error)")
-                    }
+                XCTAssertThrowsError(try f.store.capture()) {
+                    guard case AutomaticClipboardError.unsupportedRepresentation = $0 else { return XCTFail("잘못된 사진 메타데이터 오류: \($0)") }
                 }
                 XCTAssertNil(try XCTUnwrap(f.store.previewFiles().first).url)
                 try f.store.shutdown()
                 XCTAssertTrue(lookups.isEmpty)
                 XCTAssertEqual(f.board.changeCount, generation)
                 XCTAssertEqual(try contents(f.board), original)
+                XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
             }
+            let f = try Fixture(metadataReader: { _ in XCTFail("불일치 URL의 파일을 조회하면 안 됩니다."); return nil })
+            defer { f.close() }
+            let source = f.sandbox.appendingPathComponent("미생성.photoslibrary/originals/원본.heic")
+            let photos = try Self.photosItem(source: source, raw: raw, urlTypes: [libraryType])
+            let otherType: NSPasteboard.PasteboardType = libraryType == .fileURL ? .URL : .fileURL
+            XCTAssertTrue(photos.setString(f.sandbox.appendingPathComponent("다른.heic").absoluteString, forType: otherType))
+            f.put([photos])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                guard case AutomaticClipboardError.unsupportedRepresentation = $0 else { return XCTFail("URL 불일치 오류: \($0)") }
+            }
+            XCTAssertNil(try XCTUnwrap(f.store.previewFiles().first).url)
+            try f.store.shutdown()
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
         }
     }
 
@@ -436,7 +565,8 @@ final class AutomaticClipboardStoreTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: XCTUnwrap(prepared.inputs.first)), raw)
             _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [f.output(prepared.outputDirectory)])
             try f.store.shutdown()
-            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: 0, input: prepared.inputs[0], raw: raw))
+            XCTAssertEqual(try Data(contentsOf: prepared.inputs[0]), raw)
             XCTAssertTrue(sourceLookups.isEmpty)
             XCTAssertFalse(f.files.fileExists(atPath: source.path))
         }
@@ -461,19 +591,27 @@ final class AutomaticClipboardStoreTests: XCTestCase {
 
     @MainActor
     func testPhotosRawOverridesMissingOrDifferentFileWithoutSourceMetadataLookup() throws {
-        for existingFile in [false, true] {
+        for state in ["missing", "different", "dataless"] {
             var sourceLookups: [URL] = []
             var sourceURL: URL?
             let f = try Fixture(metadataReader: { url in
-                if url == sourceURL { sourceLookups.append(url); return nil }
+                if url == sourceURL {
+                    sourceLookups.append(url)
+                    if state == "dataless", var value = Self.metadata(url) {
+                        value.st_flags |= UInt32(SF_DATALESS)
+                        return value
+                    }
+                    return nil
+                }
                 return Self.metadata(url)
             })
             defer { f.close() }
-            let source = f.sandbox.appendingPathComponent("Photos 원본.heic")
+            let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/Photos 원본.heic")
             sourceURL = source
+            try f.files.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
             // 기존 URL의 데이터가 raw와 달라도 Photos 복사 시점의 raw를 입력으로 삼는다.
             let fileBytes = Data("URL의 다른 데이터".utf8)
-            if existingFile { try fileBytes.write(to: source) }
+            if state != "missing" { try fileBytes.write(to: source) }
             let raw = try Self.image(.heic)
             f.put([try Self.photosItem(source: source, raw: raw)])
             let original = try contents(f.board)
@@ -492,11 +630,415 @@ final class AutomaticClipboardStoreTests: XCTestCase {
             XCTAssertEqual(f.board.pasteboardItems?.first?.string(forType: .fileURL), output.absoluteString)
             XCTAssertEqual(f.board.pasteboardItems?.first?.string(forType: .URL), output.absoluteString)
             try f.store.shutdown()
-            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: 0, input: prepared.inputs[0], raw: raw))
+            XCTAssertEqual(try Data(contentsOf: prepared.inputs[0]), raw)
             XCTAssertTrue(sourceLookups.isEmpty, "Photos 원본 URL의 metadata를 읽으면 안 됩니다.")
-            if existingFile { XCTAssertEqual(try Data(contentsOf: source), fileBytes) }
+            if state != "missing" { XCTAssertEqual(try Data(contentsOf: source), fileBytes) }
             else { XCTAssertFalse(f.files.fileExists(atPath: source.path)) }
         }
+    }
+
+    @MainActor
+    func testPhotosCaptureSkipsUnreadablePrivateAndDynamicProviders() throws {
+        let f = try Fixture(); defer { f.close() }
+        let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/원본.heic")
+        let raw = try Self.image(.heic)
+        let photos = try Self.photosItem(source: source, raw: raw)
+        let dynamic = try XCTUnwrap(UTType(tag: "application/x-heiccy-unreadable-photos-reference", tagClass: .mimeType, conformingTo: nil))
+        XCTAssertTrue(dynamic.isDynamic)
+        let privateTypes = [NSPasteboard.PasteboardType("com.apple.photos.private-url"),
+                            NSPasteboard.PasteboardType(dynamic.identifier)]
+        let provider = CountingData([:])
+        XCTAssertTrue(photos.setDataProvider(provider, forTypes: privateTypes))
+        f.put([photos])
+        let generation = f.board.changeCount
+        let snapshot = try f.store.capture()
+        XCTAssertTrue(provider.requests.isEmpty)
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertEqual(f.board.changeCount, generation)
+        let result = try f.output(p.outputDirectory)
+        _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [result])
+        for type in privateTypes { XCTAssertFalse(try XCTUnwrap(f.board.pasteboardItems?.first).types.contains(type)) }
+        try f.store.shutdown()
+        let restored = try XCTUnwrap(f.board.pasteboardItems?.first)
+        XCTAssertEqual(restored.string(forType: .fileURL), p.inputs[0].absoluteString)
+        XCTAssertEqual(restored.string(forType: .URL), p.inputs[0].absoluteString)
+        XCTAssertEqual(restored.data(forType: .init(UTType.heic.identifier)), raw)
+        for type in privateTypes + [.init("com.apple.photos.object-reference.asset")] {
+            XCTAssertFalse(restored.types.contains(type))
+        }
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertTrue(provider.requests.isEmpty, "게시·복구·정리에서도 private provider를 요청하면 안 됩니다.")
+    }
+
+    @MainActor
+    func testPhotosOnlineExportWithoutRawOwnsCaptureBytesBeforePrepare() throws {
+        let f = try Fixture(); defer { f.close() }
+        let source = try f.source("내보낸 Photos.heic")
+        let bytes = try Data(contentsOf: source)
+        f.put([try Self.photosItem(source: source)])
+        let original = try contents(f.board)
+        let generation = f.board.changeCount
+        let snapshot = try f.store.capture()
+        XCTAssertEqual(snapshot.targets.map(\.source), [source])
+        XCTAssertNil(snapshot.files.first?.url)
+        // 캡처 이후 원본이 바뀌어도 복사 당시 바이트를 worker와 종료 복구에 사용한다.
+        let changed = try Self.image(.heic, red: 0.8)
+        XCTAssertNotEqual(changed, bytes)
+        try changed.write(to: source)
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), bytes)
+        XCTAssertEqual(f.board.changeCount, generation)
+        _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [f.output(p.outputDirectory)])
+        XCTAssertEqual(try Data(contentsOf: source), changed)
+        try f.store.shutdown()
+        XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: 0, input: p.inputs[0], raw: bytes))
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), bytes)
+        XCTAssertEqual(try Data(contentsOf: source), changed)
+    }
+
+    @MainActor
+    func testPhotosLibraryWithoutRawRejectsBeforeAnyFileLookup() throws {
+        for urlType in [NSPasteboard.PasteboardType.fileURL, .URL] {
+            var lookups: [URL] = []
+            let f = try Fixture(metadataReader: { lookups.append($0); return nil }); defer { f.close() }
+            let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/원본.heic")
+            try f.files.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let bytes = try Self.image(.heic)
+            try bytes.write(to: source)
+            f.put([try Self.photosItem(source: source, urlTypes: [urlType])])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                guard case AutomaticClipboardError.photosOriginalUnavailable = $0 else { return XCTFail("raw 없는 보관함 사진 오류: \($0)") }
+            }
+            XCTAssertNil(try XCTUnwrap(f.store.previewFiles().first).url)
+            try f.store.shutdown()
+            XCTAssertTrue(lookups.isEmpty)
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+            XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+        }
+    }
+
+    @MainActor
+    func testPhotosWithoutRawDoesNotDownloadDatalessOrFollowSymlink() throws {
+        for linked in [false, true] {
+            var sourceURL: URL?
+            var sourceLookups = 0
+            let f = try Fixture(metadataReader: { url in
+                guard var value = Self.metadata(url) else { return nil }
+                if url == sourceURL {
+                    sourceLookups += 1
+                    if !linked { value.st_flags |= UInt32(SF_DATALESS) }
+                }
+                return value
+            }); defer { f.close() }
+            let source = f.sandbox.appendingPathComponent("Photos.heic")
+            sourceURL = source
+            let target = try f.source("링크 대상.heic")
+            let bytes = try Data(contentsOf: target)
+            if linked { try f.files.createSymbolicLink(at: source, withDestinationURL: target) }
+            else { try Data([0, 255]).write(to: source) }
+            f.put([try Self.photosItem(source: source)])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                if linked {
+                    guard case AutomaticClipboardError.unsafePath = $0 else { return XCTFail("링크를 따라가면 안 됩니다: \($0)") }
+                } else {
+                    guard case AutomaticClipboardError.fileUnavailable = $0 else { return XCTFail("dataless 파일을 읽으면 안 됩니다: \($0)") }
+                }
+            }
+            XCTAssertEqual(sourceLookups, 1)
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try Data(contentsOf: target), bytes)
+            if !linked { XCTAssertEqual(try Data(contentsOf: source), Data([0, 255])) }
+            XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+        }
+    }
+
+    @MainActor
+    func testPhotosWithoutRawRejectsParentSymlinkBeforeLookingUpLibraryChildren() throws {
+        for urlTypes in [[NSPasteboard.PasteboardType.fileURL], [.URL], [.fileURL, .URL]] {
+            var linkURL: URL?
+            var libraryURL: URL?
+            var lookups: [URL] = []
+            var writes = 0
+            let f = try Fixture(writer: { _, _ in writes += 1; return false }, metadataReader: { url in
+                lookups.append(url)
+                if let linkURL, url.path.hasPrefix(linkURL.path + "/") {
+                    XCTFail("부모 링크 아래의 파일·디렉터리를 조회하면 안 됩니다: \(url.path)")
+                    return nil
+                }
+                if let libraryURL, url.path == libraryURL.path || url.path.hasPrefix(libraryURL.path + "/") {
+                    XCTFail("링크 대상 Photos 보관함을 조회하면 안 됩니다: \(url.path)")
+                    return nil
+                }
+                return Self.metadata(url)
+            }); defer { f.close() }
+            let library = f.sandbox.appendingPathComponent("합성.photoslibrary", isDirectory: true)
+            libraryURL = library
+            let originals = library.appendingPathComponent("originals", isDirectory: true)
+            try f.files.createDirectory(at: originals, withIntermediateDirectories: true)
+            let originalFile = originals.appendingPathComponent("원본.heic")
+            let bytes = try Self.image(.heic)
+            try bytes.write(to: originalFile)
+            let link = f.sandbox.appendingPathComponent("외부 내보내기", isDirectory: true)
+            linkURL = link
+            try f.files.createSymbolicLink(at: link, withDestinationURL: library)
+            XCTAssertEqual(try XCTUnwrap(Self.metadata(link)).st_mode & S_IFMT, S_IFLNK)
+            let source = link.appendingPathComponent("originals/원본.heic")
+            XCTAssertFalse(source.pathComponents.contains { $0.hasSuffix(".photoslibrary") })
+            f.put([try Self.photosItem(source: source, urlTypes: urlTypes)])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                guard case AutomaticClipboardError.unsafePath = $0 else { return XCTFail("부모 링크를 파일 읽기 전에 거절해야 합니다: \($0)") }
+            }
+            XCTAssertEqual(lookups.last, link, "최초 심볼릭 링크에서 검사를 멈춰야 합니다.")
+            XCTAssertFalse(lookups.contains(source))
+            let checkedParents = lookups
+            XCTAssertNil(try XCTUnwrap(f.store.previewFiles().first).url)
+            try f.store.shutdown()
+            XCTAssertEqual(lookups, checkedParents)
+            XCTAssertEqual(writes, 0)
+            XCTAssertNil(f.store.ownedChangeCount)
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try Data(contentsOf: originalFile), bytes)
+            XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+        }
+    }
+
+    @MainActor
+    func testPhotosCorruptRawRejectsEvenWithReadableOriginal() throws {
+        let heic = try Self.image(.heic)
+        for raw in [Data([0, 255]), Data(heic.prefix(32)), try Self.image(.png)] {
+            var sourceURL: URL?
+            var lookups = 0
+            let f = try Fixture(metadataReader: { url in
+                if url == sourceURL { lookups += 1; return nil }
+                return Self.metadata(url)
+            }); defer { f.close() }
+            let source = try f.source()
+            sourceURL = source
+            let bytes = try Data(contentsOf: source)
+            f.put([try Self.photosItem(source: source, raw: raw)])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                guard case AutomaticClipboardError.invalidImage = $0 else { return XCTFail("손상 raw를 거절해야 합니다: \($0)") }
+            }
+            XCTAssertEqual(lookups, 0)
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+            XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+        }
+    }
+
+    @MainActor
+    func testPhotosLibraryVideoWithHEICPosterRemainsUnsupported() throws {
+        for urlType in [NSPasteboard.PasteboardType.fileURL, .URL] {
+            let f = try Fixture(metadataReader: { _ in XCTFail("보관함 동영상 파일 조회 금지"); return nil })
+            defer { f.close() }
+            let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/영상.mov")
+            f.put([try Self.photosItem(source: source, raw: Self.image(.heic), urlTypes: [urlType], mediaType: 2)])
+            let original = try contents(f.board)
+            let generation = f.board.changeCount
+            XCTAssertThrowsError(try f.store.capture()) {
+                guard case AutomaticClipboardError.unrestorablePhotosLibraryURL = $0 else { return XCTFail("동영상 포스터를 변환하면 안 됩니다: \($0)") }
+            }
+            let preview = try XCTUnwrap(f.store.previewFiles().first)
+            XCTAssertTrue(preview.isVideo)
+            XCTAssertFalse(preview.isHEIC)
+            XCTAssertNil(preview.url)
+            try f.store.shutdown()
+            XCTAssertEqual(f.board.changeCount, generation)
+            XCTAssertEqual(try contents(f.board), original)
+        }
+    }
+
+    @MainActor
+    func testPhotosAssetReferenceAloneCannotPrepareConversion() throws {
+        let f = try Fixture(); defer { f.close() }
+        f.put([try Self.photosItem(source: f.sandbox.appendingPathComponent("미제공.heic"), urlTypes: [])])
+        let original = try contents(f.board)
+        let generation = f.board.changeCount
+        let snapshot = try f.store.capture()
+        XCTAssertTrue(snapshot.targets.isEmpty)
+        XCTAssertThrowsError(try f.store.prepare(snapshot: snapshot, jobID: UUID().uuidString)) {
+            guard case AutomaticClipboardError.incompleteResults = $0 else { return XCTFail("asset 참조만으로 입력을 만들면 안 됩니다: \($0)") }
+        }
+        try f.store.shutdown()
+        XCTAssertEqual(f.board.changeCount, generation)
+        XCTAssertEqual(try contents(f.board), original)
+        XCTAssertFalse(f.files.fileExists(atPath: f.root.path))
+    }
+
+    @MainActor
+    func testPhotosFailedPublicationRollsBackToOwnedInputAndKeepsReferencedFiles() throws {
+        var calls = 0
+        let f = try Fixture(writer: { board, items in
+            calls += 1
+            let written = board.writeObjects(items)
+            return calls == 1 ? false : written
+        }); defer { f.close() }
+        let source = try f.source()
+        let sourceBytes = try Data(contentsOf: source)
+        let raw = try Self.image(.heic, red: 0.8)
+        f.put([try Self.photosItem(source: source, raw: raw), Self.item([(.string, Data("중간 설명".utf8))])])
+        let original = try contents(f.board)
+        let snapshot = try f.store.capture()
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        let result = try f.output(p.outputDirectory)
+        XCTAssertThrowsError(try f.store.publish(snapshot: snapshot, jobID: id, results: [result])) {
+            guard case AutomaticClipboardError.writeFailed = $0 else { return XCTFail("게시 실패 오류: \($0)") }
+        }
+        XCTAssertEqual(calls, 2)
+        let expected = normalizedPhotosRestore(original, index: 0, input: p.inputs[0], raw: raw)
+        XCTAssertEqual(try contents(f.board), expected)
+        XCTAssertEqual(f.store.ownedChangeCount, f.board.changeCount)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
+        f.store.discard(jobID: id)
+        try f.store.shutdown()
+        XCTAssertEqual(try contents(f.board), expected)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        f.putText()
+        let external = f.board.changeCount
+        f.store.clipboardDidChange()
+        XCTAssertEqual(f.board.changeCount, external)
+        XCTAssertFalse(f.files.fileExists(atPath: p.inputs[0].path))
+        XCTAssertFalse(f.files.fileExists(atPath: result.path))
+    }
+
+    @MainActor
+    func testPhotosRollbackAndShutdownFailureKeepFilesUntilNormalizedRestoreRetry() throws {
+        var writingWorks = false
+        let f = try Fixture(writer: { board, items in writingWorks && board.writeObjects(items) })
+        defer { f.close() }
+        let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/미생성.heic")
+        let raw = try Self.image(.heic)
+        f.put([try Self.photosItem(source: source, raw: raw)])
+        let original = try contents(f.board)
+        let snapshot = try f.store.capture()
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        let result = try f.output(p.outputDirectory)
+        XCTAssertThrowsError(try f.store.publish(snapshot: snapshot, jobID: id, results: [result])) {
+            guard case AutomaticClipboardError.restoreFailed = $0 else { return XCTFail("롤백 실패 오류: \($0)") }
+        }
+        f.store.discard(jobID: id)
+        XCTAssertThrowsError(try f.store.shutdown()) {
+            guard case AutomaticClipboardError.restoreFailed = $0 else { return XCTFail("종료 복구 실패 오류: \($0)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        f.store.clipboardDidChange()
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        writingWorks = true
+        try f.store.shutdown()
+        XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: 0, input: p.inputs[0], raw: raw))
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertFalse(f.files.fileExists(atPath: source.path))
+        f.putText()
+        f.store.clipboardDidChange()
+        XCTAssertFalse(f.files.fileExists(atPath: p.inputs[0].path))
+        XCTAssertFalse(f.files.fileExists(atPath: result.path))
+    }
+
+    @MainActor
+    func testPhotosRestoreInputReadErrorDoesNotMutateClipboardOrDeletePublishedFiles() throws {
+        var unavailableInput: URL?
+        let f = try Fixture(metadataReader: { url in
+            guard var value = Self.metadata(url) else { return nil }
+            if url == unavailableInput { value.st_flags |= UInt32(SF_DATALESS) }
+            return value
+        }); defer { f.close() }
+        let source = try f.source()
+        let sourceBytes = try Data(contentsOf: source)
+        let raw = try Self.image(.heic)
+        f.put([try Self.photosItem(source: source, raw: raw)])
+        let original = try contents(f.board)
+        let initial = f.board.changeCount
+        let snapshot = try f.store.capture()
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        let result = try f.output(p.outputDirectory)
+        unavailableInput = p.inputs[0]
+        XCTAssertThrowsError(try f.store.publish(snapshot: snapshot, jobID: id, results: [result])) {
+            guard case AutomaticClipboardError.fileUnavailable = $0 else { return XCTFail("복구 입력 조회 오류: \($0)") }
+        }
+        XCTAssertEqual(f.board.changeCount, initial)
+        XCTAssertEqual(try contents(f.board), original)
+        unavailableInput = nil
+        _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [result])
+        let published = try contents(f.board)
+        let generation = f.board.changeCount
+        unavailableInput = p.inputs[0]
+        XCTAssertThrowsError(try f.store.shutdown()) {
+            guard case AutomaticClipboardError.fileUnavailable = $0 else { return XCTFail("종료 입력 조회 오류: \($0)") }
+        }
+        XCTAssertEqual(f.board.changeCount, generation)
+        XCTAssertEqual(try contents(f.board), published)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
+        unavailableInput = nil
+        try f.store.shutdown()
+        XCTAssertEqual(try contents(f.board), normalizedPhotosRestore(original, index: 0, input: p.inputs[0], raw: raw))
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+    }
+
+    @MainActor
+    func testPhotosForeignClipboardAndCleanupReadErrorPreserveReferencesWithoutMutation() throws {
+        var lookupFails = false
+        let f = try Fixture(cleanupItemsReader: { lookupFails ? nil : $0.pasteboardItems })
+        defer { f.close() }
+        let raw = try Self.image(.heic)
+        let source = f.sandbox.appendingPathComponent("합성.photoslibrary/originals/미생성.heic")
+        f.put([try Self.photosItem(source: source, raw: raw)])
+        let snapshot = try f.store.capture()
+        let id = UUID().uuidString
+        let p = try f.store.prepare(snapshot: snapshot, jobID: id)
+        let result = try f.output(p.outputDirectory)
+        _ = try f.store.publish(snapshot: snapshot, jobID: id, results: [result])
+        // 소유 입력을 외부 프로그램이 다시 복사한 경우에도 종료 복구로 덮어쓰지 않는다.
+        f.put([Self.item([(.URL, Data(p.inputs[0].absoluteString.utf8)), (.string, Data("외부 설명".utf8))])])
+        let foreign = try contents(f.board)
+        let generation = f.board.changeCount
+        lookupFails = true
+        f.store.clipboardDidChange()
+        try f.store.shutdown()
+        XCTAssertNil(f.store.ownedChangeCount)
+        XCTAssertEqual(f.board.changeCount, generation)
+        XCTAssertEqual(try contents(f.board), foreign)
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        lookupFails = false
+        f.store.clipboardDidChange()
+        XCTAssertEqual(try Data(contentsOf: p.inputs[0]), raw)
+        XCTAssertEqual(try contents(f.board), foreign)
+        f.putText("참조 없는 외부 복사")
+        let unreferenced = f.board.changeCount
+        lookupFails = true
+        f.store.clipboardDidChange()
+        XCTAssertTrue(f.files.fileExists(atPath: result.path))
+        lookupFails = false
+        f.store.clipboardDidChange()
+        XCTAssertFalse(f.files.fileExists(atPath: p.inputs[0].path))
+        XCTAssertFalse(f.files.fileExists(atPath: result.path))
+        XCTAssertEqual(f.board.changeCount, unreferenced)
+        XCTAssertEqual(f.board.string(forType: .string), "참조 없는 외부 복사")
     }
 
     @MainActor

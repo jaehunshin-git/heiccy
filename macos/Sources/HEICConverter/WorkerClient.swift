@@ -34,7 +34,7 @@ import ConverterKit
         task.executableURL = executable
         // 사용자 Python, 셸, PATH 설정을 실행 경로로 사용하지 않는다.
         task.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-                            "LANG": "en_US.UTF-8", "PYTHONUTF8": "1"]
+                            "LANG": "en_US.UTF-8"]
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         task.standardInput = stdin; task.standardOutput = stdout; task.standardError = stderr
         let token = UUID(); generation = token; buffer = JSONLineBuffer(); diagnostics = ""

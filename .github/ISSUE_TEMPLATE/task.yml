@@ -1,0 +1,40 @@
+name: 개발·운영 작업
+description: 개발 환경, 리팩토링, 문서 및 저장소 운영 작업을 기록합니다.
+title: "[작업] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 📄 Description
+      description: 작업 배경, 목적과 범위를 구체적으로 작성하세요.
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: ✅ Tasks
+      description: 작업 항목을 체크리스트로 작성하세요.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 🎯 완료 기준
+      description: 검증 가능한 완료 기준을 체크리스트로 작성하세요.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: 🧪 검증 계획
+      description: 검증 방법과 실행 환경을 작성하세요.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 📎 제약 및 참고
+      description: 권한 제약과 관련 자료를 작성하세요. 제약이 없으면 해당 없음과 이유를 작성하세요.
+    validations:
+      required: true

@@ -1,0 +1,171 @@
+{
+  "repository": "jaehunshin-git/heiccy",
+  "issues": {
+    "bug": {
+      "template": ".github/ISSUE_TEMPLATE/bug.yml",
+      "title_prefix": "[버그] ",
+      "labels": [
+        "bug"
+      ],
+      "required": [
+        "사용 구성 요소",
+        "실행 환경",
+        "재현 방법"
+      ],
+      "optional": [
+        "추가 정보"
+      ],
+      "allow_not_applicable": [
+        "추가 정보"
+      ],
+      "checklists": []
+    },
+    "proposal": {
+      "template": ".github/ISSUE_TEMPLATE/proposal.yml",
+      "title_prefix": "[제안] ",
+      "labels": [
+        "enhancement"
+      ],
+      "required": [
+        "해결하고 싶은 문제",
+        "제안하는 동작"
+      ],
+      "optional": [
+        "현재 사용하는 대안"
+      ],
+      "allow_not_applicable": [
+        "현재 사용하는 대안"
+      ],
+      "checklists": []
+    },
+    "feature": {
+      "template": ".github/ISSUE_TEMPLATE/feature.yml",
+      "title_prefix": "[feat] ",
+      "labels": [
+        "✨ feature"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks"
+      ],
+      "optional": [
+        "📎 ETC"
+      ],
+      "allow_not_applicable": [],
+      "checklists": [
+        "✅ Tasks"
+      ]
+    },
+    "fix": {
+      "template": ".github/ISSUE_TEMPLATE/fix.yml",
+      "title_prefix": "[fix] ",
+      "labels": [
+        "🐛 bug"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks"
+      ],
+      "optional": [
+        "📎 ETC"
+      ],
+      "allow_not_applicable": [],
+      "checklists": [
+        "✅ Tasks"
+      ]
+    },
+    "docs": {
+      "template": ".github/ISSUE_TEMPLATE/docs.yml",
+      "title_prefix": "[docs] ",
+      "labels": [
+        "📝 docs"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks"
+      ],
+      "optional": [
+        "📎 ETC"
+      ],
+      "allow_not_applicable": [],
+      "checklists": [
+        "✅ Tasks"
+      ]
+    },
+    "init": {
+      "template": ".github/ISSUE_TEMPLATE/init.yml",
+      "title_prefix": "[init] ",
+      "labels": [
+        "🧹 chore"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks"
+      ],
+      "optional": [
+        "📎 ETC"
+      ],
+      "allow_not_applicable": [],
+      "checklists": [
+        "✅ Tasks"
+      ]
+    },
+    "refactor": {
+      "template": ".github/ISSUE_TEMPLATE/refactor.yml",
+      "title_prefix": "[refactor] ",
+      "labels": [
+        "♻️ refactor"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks"
+      ],
+      "optional": [
+        "📎 ETC"
+      ],
+      "allow_not_applicable": [],
+      "checklists": [
+        "✅ Tasks"
+      ]
+    },
+    "task": {
+      "template": ".github/ISSUE_TEMPLATE/task.yml",
+      "title_prefix": "[작업] ",
+      "labels": [
+        "enhancement"
+      ],
+      "required": [
+        "📄 Description",
+        "✅ Tasks",
+        "🎯 완료 기준",
+        "🧪 검증 계획",
+        "📎 제약 및 참고"
+      ],
+      "optional": [],
+      "allow_not_applicable": [
+        "📎 제약 및 참고"
+      ],
+      "checklists": [
+        "✅ Tasks",
+        "🎯 완료 기준"
+      ]
+    }
+  },
+  "pr": {
+    "template": ".github/PULL_REQUEST_TEMPLATE.md",
+    "required": [
+      "📌 Summary",
+      "📄 Tasks",
+      "🔍 To Reviewer",
+      "✅ Validation",
+      "⚠️ Unverified"
+    ],
+    "allow_not_applicable": [
+      "🔍 To Reviewer",
+      "⚠️ Unverified"
+    ],
+    "checklists": [
+      "📄 Tasks"
+    ]
+  }
+}

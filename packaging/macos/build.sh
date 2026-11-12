@@ -47,16 +47,15 @@ while subprocess.run(
     time.sleep(0.2)
 PY
 mkdir -p "$BUILD" "$DIST"
-"$PYTHON" -m PyInstaller --noconfirm --clean --workpath "$BUILD/pyinstaller" --distpath "$BUILD/frozen" packaging/macos/worker.spec
 swift build --package-path macos --configuration release --arch arm64
-# 복사 범위는 세 개의 빌드 산출물과 아래 명시한 파일로 한정한다.
+# 앱·네이티브 worker·아이콘과 명시한 고지만 복사한다.
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Licenses"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Licenses" "$APP/Contents/Resources/worker"
 SWIFT_BIN="$(swift build --package-path macos --configuration release --arch arm64 --show-bin-path)"
 cp "$SWIFT_BIN/HEICConverter" "$APP/Contents/MacOS/HEICConverter"
 cp packaging/macos/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-cp -R "$BUILD/frozen/worker" "$APP/Contents/Resources/worker"
+cp "$SWIFT_BIN/heic-worker" "$APP/Contents/Resources/worker/heic-worker"
 cp LICENSE "$APP/Contents/Resources/Licenses/HEIC-Converter-MIT.txt"
 "$PYTHON" packaging/macos/collect_licenses.py "$APP/Contents/Resources/Licenses"
 "$PYTHON" packaging/macos/create_icon.py "$BUILD/AppIcon.iconset"
@@ -65,6 +64,7 @@ iconutil -c icns "$BUILD/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.ic
 "$PYTHON" packaging/macos/sign_app.py "$APP"
 "$PYTHON" packaging/macos/validate_app.py "$APP"
 "$PYTHON" packaging/macos/smoke_worker.py "$APP/Contents/Resources/worker/heic-worker"
+"$PYTHON" packaging/macos/test_native_worker.py "$APP/Contents/Resources/worker/heic-worker"
 "$PYTHON" - "$APP/Contents/MacOS/HEICConverter" <<'PY'
 import subprocess
 import sys

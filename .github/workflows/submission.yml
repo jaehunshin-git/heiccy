@@ -1,0 +1,55 @@
+name: 이슈 및 PR 제출 형식
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review, labeled, unlabeled]
+    branches: [main]
+  issues:
+    types: [opened, edited, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: submission-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  pr:
+    if: github.event_name == 'pull_request_target'
+    # 커스텀 commit status와 이름이 겹치지 않도록 한다.
+    name: PR 메타데이터 처리
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # 신뢰하는 main의 SHA이며 fork/head/merge 소스는 실행하지 않는다.
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: 현재 head의 PR 형식 상태 갱신
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/validate_github_metadata.py
+
+  issue:
+    if: github.event_name == 'issues'
+    name: 이슈 메타데이터 처리
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: 이슈 형식 검사 및 미준수 라벨 갱신
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/validate_github_metadata.py

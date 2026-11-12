@@ -325,7 +325,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         print(
-            f"수정 예시: {EXAMPLE}\n규칙 안내: docs/commit-message-hooks.md",
+            f"수정 예시: {EXAMPLE}\n규칙 안내: .github/commit-message-hooks.md",
             file=sys.stderr,
         )
         return 1

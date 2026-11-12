@@ -1,375 +1,171 @@
-<img src="docs/assets/branding/heiccy-app-icon.png" alt="heiccy app icon" width="96" height="96" />
-
 # heiccy
+
+<img
+  src="docs/assets/branding/heiccy-app-icon.png"
+  alt="heiccy 앱 아이콘"
+  width="96"
+  height="96"
+/>
+
+[한국어](README.md) · [English](README.en.md)
 
 ![macOS](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)
 ![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-555555)
-![Local processing](https://img.shields.io/badge/Processing-Local%20only-2E8B57)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+![로컬 처리](https://img.shields.io/badge/Processing-Local%20only-2E8B57)
+[![라이선스](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> HEIC to JPEG or PNG, automatically.
+> HEIC를 JPEG·PNG로, 알아서.
+>
+> 변환은 헤이키에게.
 
-**heiccy** is a macOS menu bar app that converts supported HEIC clipboard images
-into JPEG or PNG, ready to paste with **Command-V**. Photos are processed on your
-computer and source files remain unchanged. The app includes its Python runtime
-and codecs, so you do not need to install Python separately.
+**heiccy**(헤이키)는 복사한 HEIC를 JPEG·PNG로 자동 변환해 **⌘V**로 붙여넣을 수
+있도록 준비하는 macOS 메뉴바 앱입니다. Photos에서 사진을 복사하거나 Finder에서
+HEIC 파일을 복사하면 됩니다. 사진은 내 컴퓨터에서 처리하고 원본 파일은 변경하지
+않습니다.
 
-The same repository provides a CLI and an arrow-key TUI for directory conversion
-and scripts. See [CLI/TUI](#clitui) for Python package installation and
-[README.ko.md](README.ko.md) for Korean documentation.
+앱과 변환 엔진 모두 Swift로 작성했으며 macOS 기본 이미지 기능을 사용합니다.
+Python 런타임과 외부 코덱을 앱에 포함하지 않고, 따로 설치할 필요도 없습니다.
 
-**Release status:** Version 1.0.0 is being prepared. The official download entry
-point is [heiccy Releases](https://github.com/jaehunshin-git/heiccy/releases).
-A DMG is available only after its release has been published.
+**배포 상태:** 앱 `1.0.0` 배포를 준비 중입니다. 공식 다운로드 진입점은
+[heiccy Releases](https://github.com/jaehunshin-git/heiccy/releases)입니다.
+릴리스가 공개된 뒤 해당 버전의 DMG를 받을 수 있습니다.
 
-## macOS app installation
+## 주요 기능
 
-### Requirements
+| 기능 | 설명 |
+| --- | --- |
+| 복사 후 자동 변환 | Photos의 지원하는 HEIC 사진이나 Finder의 로컬 HEIC 파일을 복사하고, 변환 완료 후 붙여넣습니다. |
+| JPEG·PNG 선택 | JPEG 품질과 PNG 압축 수준을 설정하며, 지원하는 사진은 16비트 HDR PNG로 변환합니다. |
+| 메타데이터 정책 | 기본 설정은 GPS·XMP를 제거합니다. 원본 정보 보존 또는 EXIF·XMP 제거도 선택할 수 있습니다. |
+| 로컬 처리 | 사진을 서버로 보내지 않으며 원본 파일을 변경하거나 클립보드 이력을 저장하지 않습니다. |
 
-- Apple Silicon Mac (arm64), macOS 15 or later
-- No separate Python installation required to run the packaged app
+## 기술 스택
 
-### DMG download and installation
+| Category | 기술 |
+| --- | --- |
+| App | Swift, SwiftUI, AppKit |
+| Conversion | macOS Image I/O, Core Image |
+| Compression | macOS 시스템 zlib |
 
-The app's distribution destination is [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases).
-Download the DMG and checksum from the same published release. Until that
-release is available, these steps apply to a build made from source:
+## macOS 앱 설치
 
-1. Obtain the DMG and its matching `.sha256` file from the same build or release.
-2. In the directory containing both files, verify the checksum:
+### 요구 사항
+
+- Apple Silicon Mac(arm64), macOS 15 이상
+- Python·Pillow·추가 코덱 설치 불필요
+
+### DMG 다운로드와 설치
+
+앱 배포 경로는 [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases)입니다.
+같은 공개 릴리스에서 DMG와 체크섬을 받습니다. 공개 릴리스가 준비되기 전에는
+아래 절차를 소스에서 빌드한 앱·DMG에 적용할 수 있습니다.
+
+1. 같은 빌드나 릴리스에서 DMG와 해당 `.sha256` 파일을 받습니다.
+2. 두 파일이 있는 디렉터리에서 체크섬을 확인합니다.
 
    ```bash
    shasum -a 256 -c heiccy-1.0.0-arm64.dmg.sha256
    ```
 
-3. Open the DMG and drag **heiccy.app** to **Applications**.
-4. Open **heiccy** from Applications; its icon appears in the menu bar.
+3. DMG를 열고 **heiccy.app**을 **Applications**로 드래그합니다.
+4. Applications에서 **heiccy**를 실행하면 메뉴바에 아이콘이 나타납니다.
 
-Current builds use ad-hoc signing and are not notarized. If macOS blocks the first
-launch, follow [Apple's instructions](https://support.apple.com/102445).
+현재 빌드는 ad-hoc 서명을 사용하며 공증하지 않습니다. 첫 실행이 차단되면
+[Apple 공식 안내](https://support.apple.com/ko-kr/102445)를 따르세요.
 
-### Replacing an earlier app build
+### 기존 앱 빌드 교체
 
-The new filename does not replace an existing `HEIC Converter.app` automatically.
-Quit the earlier app from its menu bar menu before installing `heiccy.app`, so it
-can restore any clipboard data it published. Keep the earlier bundle outside
-Applications as a backup, then install and open `heiccy.app` explicitly. Do not
-run both copies together. If you return to the earlier build, quit heiccy first.
+파일 이름이 달라 기존 `HEIC Converter.app`이 자동으로 교체되지는 않습니다.
+이전 앱의 메뉴바 메뉴에서 먼저 종료해 앱이 게시한 클립보드를 복구할 수 있도록
+합니다. 이전 앱 번들은 Applications 밖에 백업해 둔 뒤 `heiccy.app`을 설치하고
+해당 앱을 직접 실행하세요. 두 앱을 함께 실행하지 마세요. 이전 빌드로 돌아갈 때도
+heiccy를 먼저 종료합니다.
 
-The bundle identifier and settings key are unchanged, so saved conversion options
-and legacy output paths remain available. Pause is session-only; automatic
-conversion starts enabled on the next launch.
+번들 ID와 설정 키를 유지하므로 저장한 변환 옵션과 레거시 출력 경로를 계속 읽습니다.
+일시정지는 실행 중에만 유지하고 다음 실행에서는 자동 변환이 다시 켜집니다.
 
-### Build the app from source
+### 소스에서 앱 빌드
 
-Building requires Xcode or Command Line Tools with the macOS SDK, and `uv`.
-From the repository root on an Apple Silicon Mac:
+소스에서 앱을 빌드하려면 [앱 빌드·배포 안내](docs/build.md)를 참고하세요.
 
-```bash
-bash packaging/macos/build.sh
-```
+## heiccy 사용법
 
-The current source builds `dist/macos/heiccy.app`,
-`dist/macos/heiccy-1.0.0-arm64.dmg`, and the matching `.sha256` file.
-See [the build and release guide](https://github.com/jaehunshin-git/heiccy/blob/main/docs/build.md)
-for the pinned build environment and validation steps.
+1. Photos에서 지원하는 HEIC 사진을 직접 복사하거나 Finder에서 로컬 HEIC 파일을
+   복사합니다. 지원하는 Photos 사진은 별도로 내보낼 필요가 없습니다.
+2. 변환 완료 알림을 기다립니다. 완료 전에 붙여넣으면 원본이 전달될 수 있습니다.
+3. 대상 앱에서 **⌘V**로 붙여넣습니다.
 
-## Using heiccy
-
-1. Copy a supported local HEIC file in Finder, or supported raw HEIC image data.
-2. Wait for the conversion-complete notice. Pasting before completion may paste
-   the original image.
-3. Paste with **Command-V** in the receiving app.
-
-| Control | Action |
+| 조작 | 동작 |
 | --- | --- |
-| Left-click the menu bar icon | Show or hide the current clipboard's file names, thumbnails, and conversion status. |
-| Right-click the menu bar icon | Pause/resume automatic conversion, open Settings, or quit. |
-| Settings | Choose JPEG/PNG, quality, compression, and metadata handling. |
-| Reopen the running app from Finder or Spotlight | Show the clipboard panel. |
+| 메뉴바 아이콘 왼쪽 클릭 | 현재 클립보드 파일의 이름·썸네일·변환 상태를 표시하거나 숨깁니다. |
+| 메뉴바 아이콘 오른쪽 클릭 | 자동 변환 일시정지·다시 시작, 설정 열기, 앱 종료를 제공합니다. |
+| 설정 | JPEG·PNG 형식, 품질, 압축 수준과 메타데이터 정책을 고릅니다. |
+| 실행 중인 앱을 Finder·Spotlight에서 다시 열기 | 클립보드 패널을 표시합니다. |
 
-Automatic conversion starts enabled on each launch. Pause lasts for the current
-session; conversion options persist. The panel closes when focus moves away.
-Copy detection does not open it, and the app keeps no clipboard history.
+자동 변환은 앱을 실행할 때마다 켜집니다. 일시정지는 해당 실행에만 유지하고 변환
+옵션은 저장합니다. 패널은 포커스가 다른 곳으로 이동하면 닫힙니다. 복사 감지만으로
+패널을 열지 않으며 클립보드 이력은 저장하지 않습니다.
 
-The default output is JPEG at quality 90. PNG compression defaults to 6 and the
-metadata policy is `safe`, which removes GPS and XMP where supported. On macOS 15+
-with supported Apple HDR gain maps, PNG output can preserve HDR in 16-bit form;
-JPEG output is SDR. HDR conversion depends on the source and ImageIO support.
+### 변환 설정
 
-### Supported input and clipboard safety
-
-- Readable local regular `.heic` file URLs and raw `public.heic` data are supported.
-- Non-HEIC items retain their order and preservable clipboard representations.
-  Results are published only after every HEIC conversion succeeds and the
-  clipboard still contains the same copy. A newer copy cancels stale publication.
-- Files referenced by converted clipboard items are temporary. Source files are
-  unchanged. Normal quit restores the original clipboard when it still contains
-  the app's results; recovery after an abnormal exit is not guaranteed.
-- File promises, offline files, and Photos asset references combined with file
-  URLs inside a `.photoslibrary` are unsupported. Export an unmodified original
-  and copy it from Finder for the file workflow. Videos are excluded.
-- Receiving apps choose which clipboard representations to accept; pasting every
-  item in every app is not guaranteed.
-
-See [clipboard compatibility](docs/compatibility.md) for supported inputs and
-receiving-app limitations. Report user-facing bugs in
-[heiccy Issues](https://github.com/jaehunshin-git/heiccy/issues).
-
-## CLI/TUI
-
-[![PyPI](https://img.shields.io/pypi/v/heic-converter-tui?logo=pypi&logoColor=white)](https://pypi.org/project/heic-converter-tui/)
-[![Python package downloads](https://api.pepy.tech/personalized-badge/heic-converter-tui?period=month&units=none&left_color=grey&right_color=blue&left_text=downloads%2Fmonth)](https://pepy.tech/projects/heic-converter-tui)
-[![Python](https://img.shields.io/badge/Python-%E2%89%A53.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-
-The [PyPI package](https://pypi.org/project/heic-converter-tui/) is the directory
-converter for terminal users. Its distribution name remains `heic-converter-tui`
-and its command remains `heic-converter`; installing it does not install the
-standalone macOS app.
-
-### CLI/TUI requirements
-
-- Python 3.11 or later
-- macOS is the primary supported platform
-- `uv` or `pipx`
-
-The installation command installs the required Pillow and pillow-heif runtime
-dependencies.
-
-### Install
-
-With `uv`:
-
-```bash
-uv tool install heic-converter-tui
-```
-
-Or with `pipx`:
-
-```bash
-pipx install heic-converter-tui
-```
-
-The distribution name is `heic-converter-tui`; the installed command is
-`heic-converter`.
-
-```bash
-heic-converter --help
-```
-
-### Run the TUI
-
-Run the command without arguments in a real terminal:
-
-```bash
-heic-converter
-```
-
-Choose `한국어` or `English` first. The rest of the UI, including validation
-messages, choices, the summary, and cancellation notices, follows that choice.
-Use the `↑` and `↓` arrow keys to move between choices, press Enter to confirm,
-and type paths directly.
-
-```text
-HEIC Converter TUI
-
-? Language / 언어 English
-
-HEIC conversion settings
-
-? Input directory path ./input
-? Output directory path ./output
-? Output format JPEG
-? JPEG quality High (90)
-? Include subdirectories? No — current directory only
-? Metadata handling Keep safely (recommended) — remove sensitive data such as GPS
-? When an output file has the same name Rename (recommended) — create a numbered filename
-
-Configuration summary
-  Input directory: input
-  Output directory: output
-  Output format: JPEG (JPEG quality 90)
-  Include subdirectories: No
-  Metadata: Keep safely
-  File conflict handling: Rename
-
-? Start conversion with these settings? Start
-```
-
-Press `Ctrl+C` or choose `Cancel` at the last prompt to exit without converting;
-the command returns exit code `130`.
-
-### Run from the command line
-
-Specify an output format when running from a script or non-interactive environment.
-
-```bash
-# Convert HEIC files directly inside input to JPEG.
-heic-converter --input ./input --output ./output --format jpeg
-
-# Convert HEIC files in photos to PNG.
-heic-converter --input ./photos --output ./converted --format png
-
-# Include subdirectories and create a new name if output files already exist.
-heic-converter \
-  --input ./photos \
-  --output ./converted \
-  --format jpeg \
-  --recursive \
-  --on-conflict rename
-```
-
-Omitting `--format` outside a TTY produces a usage error.
-
-### Upgrade or uninstall
-
-For an installation made with `uv`:
-
-```bash
-uv tool upgrade heic-converter-tui
-uv tool uninstall heic-converter-tui
-```
-
-For an installation made with `pipx`:
-
-```bash
-pipx upgrade heic-converter-tui
-pipx uninstall heic-converter-tui
-```
-
-### Install and verify from source
-
-To install a source checkout as a tool, run one of these commands from the
-repository root:
-
-```bash
-uv tool install .
-```
-
-```bash
-pipx install .
-```
-
-To install development dependencies and run the checks:
-
-```bash
-uv sync --group dev
-uv run pytest
-uv run ruff check .
-uv build
-uvx --from twine twine check dist/*
-```
-
-### Commit message hooks
-
-Source contributors can install the repository's Korean Conventional Commits
-validator with Python 3.11 or later; no extra Python packages are required:
-
-```sh
-bash scripts/install_git_hooks.sh
-```
-
-The hook blocks invalid titles, declarative prose endings, and malformed footers.
-See [the hook guide](docs/commit-message-hooks.md)
-for rules, limitations, existing hook settings, worktree scope, and uninstall steps.
-Developer hooks are available in source checkouts, outside the PyPI distribution.
-
-## 📚 Behavior and options
-
-### Command format
-
-```text
-heic-converter --input INPUT --output OUTPUT --format {jpeg,png} [OPTIONS]
-```
-
-`--input` and `--output` are directory paths. They default to `./input` and
-`./output`, respectively. They cannot refer to the same directory, and single-file
-input is not supported.
-
-| Option | Description | Default |
+| 설정 | 동작 | 기본값 |
 | --- | --- | --- |
-| `-i, --input PATH` | Input HEIC directory | `./input` |
-| `-o, --output PATH` | Output directory | `./output` |
-| `-f, --format {jpeg,png}` | Output format | Required outside the TUI |
-| `--jpeg-quality N` | JPEG quality, from 1 to 100 | `90` |
-| `--png-compression N` | PNG compression level, from 0 to 9 | `6` |
-| `--recursive` | Search subdirectories | Off |
-| `--metadata {safe,preserve,strip}` | Metadata policy | `safe` |
-| `--on-conflict {rename,skip,overwrite,error}` | Output conflict policy | `rename` |
+| 출력 형식 | JPEG 또는 PNG | JPEG |
+| JPEG 품질 | Low 60 · Medium 80 · High 90 · Raw 100. Raw도 손실 압축입니다. | High 90 |
+| PNG 압축 | 0~9 수준의 사전 설정. 화질은 같고 변환 시간과 파일 크기가 달라집니다. SDR·HDR PNG 모두에 적용됩니다. | 6 |
+| 메타데이터 | 안전 보존(`safe`) · 모두 보존(`preserve`) · 제거(`strip`) | 안전 보존 |
 
-JPEG output uses the `.jpeg` extension, while PNG output uses `.png`.
-The TUI offers practical quality and compression presets; the CLI accepts any valid
-value within the ranges above.
+안전 보존은 GPS·XMP를 제거하고 나머지 EXIF를 가능한 범위에서 유지합니다.
+모두 보존은 GPS를 포함한 EXIF·XMP를 가능한 범위에서 유지하고, 제거는 EXIF·XMP를
+제외합니다. 어떤 정책이든 색 재현에 필요한 프로파일은 유지합니다.
 
-### Metadata and image handling
+지원하는 Apple HDR 게인 맵이 있고 방향 보정이 필요 없는 사진은 16비트 HDR PNG로
+변환할 수 있습니다. 그 외의 PNG와 모든 JPEG는 SDR로 처리합니다. HDR 보존은
+원본과 macOS 지원에 따라 달라집니다. 이미지 방향은 픽셀에 반영하며, PNG는 투명도를
+유지하고 JPEG의 투명 영역은 흰색으로 채웁니다.
 
-| Policy | Behavior |
-| --- | --- |
-| `safe` | Removes GPS and XMP while retaining other EXIF data and ICC profiles where possible. |
-| `preserve` | Retains EXIF, XMP, and ICC profiles where supported by the conversion libraries. |
-| `strip` | Removes EXIF and XMP. HDR PNG retains its ICC profile or CICP color signaling required for correct rendering. |
+### 지원 입력과 클립보드 보호
 
-The converter applies image orientation to pixels and, when metadata is written,
-normalizes the output EXIF orientation value to `1`. JPEG does not support alpha,
-so transparent pixels are composited on white; PNG keeps alpha channels.
+- Photos가 클립보드에 제공한 HEIC 이미지와 읽을 수 있는 로컬 `.heic` 파일을
+  지원합니다. Photos 보관함 내부 파일을 직접 읽거나 수정하지 않습니다.
+- Photos 복사에 사용할 HEIC 원본 데이터가 없으면 변환할 수 없습니다. 원본이
+  Mac에 내려받아진 사진을 다시 복사하세요. 계속 실패하면 수정하지 않은 원본을
+  내보낸 뒤 Finder에서 복사하세요.
+- 복사한 모든 HEIC의 변환이 성공했을 때만 클립보드를 교체합니다. 변환 중 새로
+  복사하면 이전 결과로 덮어쓰지 않습니다. 혼합 항목의 순서는 유지합니다.
+- 앱을 정상 종료하면 클립보드에 남아 있는 앱의 변환 결과를 원본으로 복구합니다.
+  Photos 사진은 원본 HEIC 이미지로 복구하며, Photos 내부 참조 대신 임시 원본
+  파일을 사용합니다. 같은 Photos 자산 선택 상태까지 복원하지는 않습니다.
+  비정상 종료 후 복구는 보장하지 않습니다.
+- 오프라인·읽기 불가 파일과 아직 파일이 준비되지 않은 복사 입력은 지원하지
+  않습니다. HEIC의 대표 정지 이미지만 변환하며 Live Photo의 동영상은 처리하지
+  않습니다. 안전하게 복구할 수 없는 혼합 입력은 클립보드를 교체하지 않습니다.
+- 붙여넣기 지원은 대상 앱에 따라 달라집니다.
 
-On macOS 15 or later, HEIC images with an Apple HDR gain map are converted to
-16-bit HDR PNG with an HDR color profile. The native HDR path selects the HEIC's
-primary image even when its index is not zero; a generated multi-image HEIC verifies
-the nonzero primary index, 16-bit PQ output, and metadata policies. This preserves
-the source image's HDR brightness and color appearance on compatible displays. Other environments
-save the base SDR image, which may look different from the HEIC on an HDR
-display. JPEG output is SDR. App results report whether HDR was applied and the
-reason for SDR fallback. HDR preservation depends on the source gain map and
-available ImageIO APIs; it is not guaranteed for every HEIC. PNG compression
-level applies to the Pillow SDR path; the native HDR encoder controls its own
-compression.
+지원 입력과 수신 앱의 제한은 [클립보드 호환성](docs/compatibility.md)을 참고하세요.
+사용 중 발견한 문제는 [heiccy 이슈](https://github.com/jaehunshin-git/heiccy/issues)에
+접수할 수 있습니다.
 
-### File discovery and conflict handling
+## 배포와 문서
 
-- Only files with a case-insensitive `.heic` extension are processed; `.heif` is not supported.
-- By default, only files directly in the input directory are considered. `--recursive` includes subdirectories and preserves their relative layout in the output directory.
-- If the output directory is inside the input directory, its tree is excluded from discovery.
-- `rename` deterministically chooses an available filename such as `photo.jpeg`, `photo-2.jpeg`, or `photo-3.jpeg`.
-- `skip` leaves the existing output file untouched and skips that input.
-- `overwrite` replaces an existing output file.
-- `error` records the conflicting file as a failure and continues with the next input.
-- Files are first completed in a temporary file inside the output directory, so incomplete output files are not exposed.
+macOS 앱은 [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases)에서
+배포합니다. Python CLI/TUI는 별도
+[heic-converter-tui 저장소](https://github.com/jaehunshin-git/heic-converter-tui)에서
+개발·배포합니다.
 
-### Supported scope
+- [클립보드 호환성과 지원 범위](docs/compatibility.md)
+- [앱 빌드·배포 안내](docs/build.md)
+- [릴리스 노트](docs/releases/v1.0.0.md)
+- [네이티브 앱 구성과 라이선스](docs/third-party-sources.md)
+- [버그 신고·기능 제안](https://github.com/jaehunshin-git/heiccy/issues)
 
-The converter processes one primary still image from each HEIC file and produces
-JPEG or PNG. It does not support:
+앱 자동 업데이트, Intel 지원, Homebrew Cask와 Mac App Store 배포는 제공하지 않습니다.
+업데이트할 때 앱을 정상 종료한 뒤 새 DMG로 교체하세요.
 
-- PDF or HWP/HWPX conversion
-- OCR or text extraction
-- Live Photo video processing
-- Extracting auxiliary images, sequences, or video instead of the primary still image
-- Single-file input through the CLI (the app uses clipboard input)
+## 라이선스
 
-### Exit codes
-
-| Code | Meaning |
-| --- | --- |
-| `0` | Every input was processed successfully. |
-| `1` | One or more files could not be read, converted, or saved. |
-| `2` | An argument, path, or option is invalid, or no `.heic` files were found. |
-| `130` | The interactive UI was interrupted with `Ctrl+C` or cancelled. |
-
-## Development and documentation
-
-Release snapshots include the Swift menu bar app, Python conversion service and
-CLI/TUI, tests, and pinned build tools. See the [build guide](docs/build.md).
-Each snapshot records the development source commit and file hashes in
-`SOURCE.json`; the public Git history begins with this migration.
-App releases use `v<app version>` in this repository. The PyPI package has its own
-version and release schedule; its English description is [README.pypi.md](README.pypi.md).
-Automatic app updates, Intel support, Homebrew Cask and Mac App Store distribution
-are not included in this release. To update, quit the app and install the new DMG.
-
-## License
-
-This project is distributed under the [MIT License](LICENSE).
-Bundled third-party components retain their own licenses, including the codec
-notices shipped with pillow-heif. See the app's
-`Contents/Resources/Licenses` for the Python runtime and library notices.
+이 프로젝트는 [MIT 라이선스](LICENSE)를 따릅니다. 저작권 표시와 라이선스 전문을
+포함하는 조건으로 사용, 복사, 수정, 배포 및 상업적 이용을 허용합니다. 소프트웨어는
+어떠한 보증도 없이 제공되며, 자세한 조건은 [LICENSE](LICENSE)를 참고하세요.
+앱은 macOS 기본 이미지 기능을 사용하며 Python이나 외부 코덱을 배포하지 않습니다.
+앱의 MIT 전문과 구성 고지는 `Contents/Resources/Licenses`에서 확인할 수 있습니다.

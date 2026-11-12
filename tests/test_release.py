@@ -7,6 +7,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -444,6 +445,43 @@ def workflow_step(workflow, name):
     )
     assert match is not None
     return textwrap.dedent(match[1].split("        run: |\n", 1)[1])
+
+
+def test_workflow_verifies_flat_downloaded_artifacts(workflow, artifacts, tmp_path):
+    directories, _ = artifacts
+    write_plist(tmp_path / "packaging/macos/Info.plist")
+    notes = tmp_path / "docs/releases" / f"v{VERSION}.md"
+    notes.parent.mkdir(parents=True)
+    notes.write_bytes((ROOT / "docs/releases" / notes.name).read_bytes())
+    for runner, source in directories.items():
+        downloaded = tmp_path / "build/release-artifacts" / runner
+        downloaded.mkdir(parents=True)
+        for asset in source.iterdir():
+            (downloaded / asset.name).write_bytes(asset.read_bytes())
+    script = workflow_step(workflow, "태그·버전·두 OS 출처와 모든 배포 해시 검증")
+    script = script.replace(
+        "python packaging/release/verify_release.py",
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'packaging/release/verify_release.py'))}",
+    )
+    output = tmp_path / "outputs"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "SOURCE_TAG": f"macos-v{VERSION}",
+            "SOURCE_REPOSITORY": REPOSITORY,
+            "SOURCE_COMMIT": SHA,
+            "RUN_ID": "123",
+            "RUN_ATTEMPT": "1",
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"public_tag=macos-v{VERSION}" in output.read_text()
+    assert (tmp_path / "build/release-notes.md").is_file()
 
 
 def test_workflow_pr_permissions_and_release_boundary(workflow):

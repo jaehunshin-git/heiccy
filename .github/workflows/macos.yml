@@ -150,8 +150,8 @@ jobs:
         run: |
           set -euo pipefail
           python packaging/release/verify_release.py verify \
-            --macos-15 build/release-artifacts/macos-15/macos \
-            --macos-26 build/release-artifacts/macos-26/macos \
+            --macos-15 build/release-artifacts/macos-15 \
+            --macos-26 build/release-artifacts/macos-26 \
             --tag "$SOURCE_TAG" --source-repository "$SOURCE_REPOSITORY" \
             --source-commit "$SOURCE_COMMIT" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
             --output "$GITHUB_OUTPUT" --notes-output build/release-notes.md

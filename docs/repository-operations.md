@@ -1,7 +1,10 @@
-# 단일 저장소 운영
+# macOS 앱 저장소 운영
 
-개발·이슈·PR·빌드·배포의 단일 원본은 `jaehunshin-git/heiccy`입니다.
-기존 private 저장소는 과거 기록 보존용이며 신규 개발이나 배포 원본으로 사용하지 않습니다.
+macOS 앱·DMG의 개발·이슈·PR·빌드·배포 원본은 `jaehunshin-git/heiccy`입니다.
+Python CLI/TUI·PyPI는 `jaehunshin-git/heic-converter-tui`에서 독립 운영합니다.
+2026-10-18 [제품별 저장소 분리 결정](decisions/2026-10-18-product-repository-split.md)이
+기존 단일 저장소 통합 방침을 대체합니다. 앱 소스·검증 도구만 유지하며
+Python 제품 코드·패키징·CI는 담당 저장소에서 관리합니다.
 private Git 이력·내부 이슈·PR·문서·개인 파일을 복사하지 않습니다.
 이 문서는 지속적인 운영 정책입니다. 원격 설정과 검증 결과는 실제 상태를 조회해 해당 이슈·PR에 기록합니다.
 기여·제출 절차는 [기여 안내](../CONTRIBUTING.md), 훅 설치·복원은 [훅 안내](../.github/commit-message-hooks.md)를 따릅니다.
@@ -9,19 +12,15 @@ private Git 이력·내부 이슈·PR·문서·개인 파일을 복사하지 않
 ## 문서와 배포 범위
 
 `README.md`는 한국어 사용자 안내, `README.en.md`는 영어 안내로 유지하고 신규 운영 문서는 한국어로 작성합니다.
-PyPI 설명 `README.pypi.md`와 `pyproject.toml`의 배포 메타데이터는 영어로 유지합니다.
+Python 제품 안내·PyPI 메타데이터는 `heic-converter-tui`에서 관리합니다.
 `LICENSE`는 영어로 유지하고 한국어 README에 이용 조건을 요약합니다. 한국어 전문을 추가하면 참고 번역임을 명시합니다.
 `input/`·`output/`의 사진과 개인 파일은 Git과 모든 배포에서 제외합니다.
-sdist는 `pyproject.toml`의 `only-include` 허용 목록을 따르고 설명은 `README.pypi.md`만 포함합니다.
-앱 README·앱 빌드 파일·`docs/`를 sdist에 추가하지 않으며 PyPI 문서 링크는 공개 절대 URL을 사용합니다.
-wheel의 `METADATA`와 sdist의 `PKG-INFO`에서 영어 Summary·본문과 허용 목록을 검증합니다. 게시한 PyPI 버전은 덮어쓰지 않습니다.
+Python 제품의 wheel/sdist·영문 메타데이터 검증은 담당 저장소에 보존합니다.
+앱 빌드·검증용 Python 도구는 이 저장소에서 계속 관리할 수 있습니다.
 
-macOS 앱과 PyPI CLI/TUI의 버전·태그·배포 시점은 독립적입니다. 앱 변경만으로 PyPI 업로드를 실행하지 않습니다.
-
-| 대상 | 버전 원본 | 태그 |
-| --- | --- | --- |
-| macOS 앱 | `packaging/macos/Info.plist` | `macos-vVERSION` |
-| PyPI `heic-converter-tui` | `pyproject.toml` | `pypi-vVERSION` |
+macOS 앱의 버전 원본은 `packaging/macos/Info.plist`, 태그는 `macos-vVERSION`입니다.
+Python 제품의 버전·태그·배포 시점은 해당 저장소에서 독립 관리하며,
+이 저장소에서 새 PyPI 릴리스를 만들지 않습니다.
 
 기존 태그를 이동·삭제·재작성하지 않습니다. 커밋·push·PR 생성·merge·태그 생성·push와 릴리스 게이트 변경·게시는 각각 승인 범위를 확인합니다.
 
@@ -44,6 +43,8 @@ manifest는 서명된 증명서가 아니며 초기 `SOURCE.json`을 대체하�
 
 `.github/workflows/macos.yml`은 macOS 15·26에서 빌드·검증합니다. 빌드 job은 `contents: read`를 사용하며
 인증 정보를 checkout에 남기지 않습니다. 전용 PAT나 private 저장소 게시 secret을 도입하지 않습니다.
+Python 도구의 정적 검사·운영 회귀 검사와 앱 검증을 실행하며, Python 제품의
+wheel/sdist 빌드·업로드와 `pypi-v*` 태그 트리거는 포함하지 않습니다.
 릴리스 job은 기본 disabled이며 다음 조건을 모두 충족해야 합니다.
 
 - 공개 저장소에서 `macos-vVERSION` 태그의 push로 실행하고 두 OS 검증이 성공해야 합니다.
@@ -52,7 +53,7 @@ manifest는 서명된 증명서가 아니며 초기 `SOURCE.json`을 대체하�
 - 릴리스 job에만 `contents: write`를 부여한 `github.token`을 사용합니다.
 - 태그·빌드 SHA의 일치와 main 포함 여부, 두 manifest와 모든 배포 해시를 검증합니다.
 
-PR·브랜치·수동 실행·`pypi-vVERSION`은 앱 릴리스 job을 실행하지 않습니다.
+현재 workflow에서 PR·브랜치·수동 실행은 앱 릴리스 job을 실행하지 않습니다.
 기존 태그에 draft만 생성하고 기존 릴리스·draft를 덮어쓰지 않습니다. 게이트 활성화·draft 생성·공개 게시의 권한을 각각 확인합니다.
 Developer ID 서명·Apple 공증 미적용을 배포 안내에 명시하고 CI artifact 검증·로컬 설치·메뉴바 조작·공개 다운로드 검증을 구분합니다.
 빌드·서명·패키징 방법은 [빌드 안내](build.md)와 [macOS 패키징 안내](../packaging/macos/README.md)를 따릅니다.

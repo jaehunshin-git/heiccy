@@ -2,7 +2,9 @@
 
 ## 공개 저장소와 작업 범위
 
-- 개발·이슈·PR·빌드·배포의 단일 원본은 `jaehunshin-git/heiccy`다. 기존 private 저장소는 과거 기록 보존용이며 신규 개발이나 배포 원본으로 사용하지 않는다.
+- 2026-10-18 확정한 [제품별 저장소 분리 결정](docs/decisions/2026-10-18-product-repository-split.md)을 따른다. `jaehunshin-git/heiccy`는 Swift macOS 앱·DMG·GitHub Releases의 개발·문서·이슈·PR·빌드·배포를 담당한다.
+- Python CLI/TUI·PyPI는 `jaehunshin-git/heic-converter-tui`에서 관리한다. 해당 저장소는 공개 Python 제품 원본이며 기존 과거 기록 전용 방침은 대체됐다.
+- 앱 빌드·검증용 Python 도구와 운영 테스트를 유지한다. Python CLI/TUI 제품 코드·패키징·CI는 담당 저장소에서 관리하며 이 저장소에 다시 추가하지 않는다.
 - private Git 이력, 내부 이슈·PR·문서 및 개인 파일을 복사하지 않는다. 공개에 필요한 일반 규칙과 명시적으로 승인된 개발 이슈 템플릿 5종만 이전한다. 템플릿은 원문 바이트를 보존하며 내부 문서 이전으로 범위를 넓히지 않는다.
 - 작업 전 현재 브랜치, 변경 파일과 적용 지침을 확인한다. 다른 작업자의 변경을 덮어쓰지 않는다.
 - 커밋, push, PR 생성, merge, 태그 생성·push와 릴리스 게이트 변경·게시는 각각 사용자 승인 범위를 확인한다. 승인 없는 원격 변경을 수행하지 않는다.
@@ -11,12 +13,10 @@
 ## 문서와 배포 파일
 
 - 신규 운영 문서는 한국어로 작성한다. `README.md`는 한국어, `README.en.md`는 영어를 유지한다.
-- PyPI 설명 `README.pypi.md`와 `pyproject.toml`의 `description` 등 배포 메타데이터는 영어로 유지한다. 앱 README와 CLI/TUI 배포 설명의 범위를 구분한다.
-- CLI/TUI 기능 변경 시 관련 README를 함께 검토한다. 공개 링크는 `https://github.com/jaehunshin-git/heiccy`를 사용한다.
+- 앱 기능 변경 시 한국어·영어 앱 안내를 함께 검토한다. 앱의 공개 링크는 `https://github.com/jaehunshin-git/heiccy`를 사용한다.
+- CLI/TUI 기능 개발·영문 PyPI 설명·패키징·배포는 `heic-converter-tui`에서 수행한다. 앱 안내에 Python 제품의 설치·옵션을 복제하지 않고 담당 공개 저장소로 연결한다.
 - `LICENSE`는 영어로 유지하고 한국어 README에 이용 조건을 요약한다. 한국어 전문을 추가하면 `LICENSE.ko.md`가 참고 번역임을 명시한다.
-- `input/`·`output/`의 사진과 개인 파일은 Git과 모든 배포에서 제외한다. sdist는 `pyproject.toml`의 `only-include` 허용 목록을 따른다.
-- sdist 설명은 `README.pypi.md`만 포함한다. 앱 README·앱 빌드 파일·`docs/`를 추가하지 않고 PyPI 설명의 문서 링크는 공개 절대 URL을 사용한다.
-- wheel의 `METADATA`, sdist의 `PKG-INFO`에서 영어 Summary·본문과 허용 목록을 검증한다. 게시된 PyPI 버전은 덮어쓰지 않는다.
+- `input/`·`output/`의 사진과 개인 파일은 Git과 모든 배포에서 제외한다. 기존 Python 배포 검증은 분리 과정에서 담당 저장소에 보존하며 게시된 PyPI 버전은 덮어쓰지 않는다.
 
 ## 이슈와 PR 제출 전 필수 절차
 
@@ -28,11 +28,11 @@
 6. 승인을 받은 제출에는 `scripts/create_submission.py`의 동일 검증 옵션을 사용한다. 생성 후 GitHub의 실제 제목·본문·라벨을 다시 읽고 검사한다. 실패하면 본문을 수정하고 재검증하며 제출 성공으로 보고하지 않는다. `gh issue create`·`gh pr create`는 Git `commit-msg` 훅을 실행하지 않는다.
 
 아래는 현재 검사기 인터페이스다. 검사기와 helper의 `--help`로 옵션을 확인했다.
-운영 전환 이슈 #1은 최초 task 형식에서 복원된 init 형식으로 갱신한다. 원격 자동 검증은 기본 브랜치 반영 후 활성화된다.
+기존 단일 저장소 전환 이슈 #1과 PR 초안은 당시 기록으로 보존하며 새 범위 반영은 후속 작업이다. 아래는 형식 검사 예시이며 실제 이슈·PR을 생성한 상태가 아니다. 원격 자동 검증은 기본 브랜치 반영 후 활성화된다.
 
 ```sh
-python3 scripts/check_submission.py --kind issue --template init --title '[init] 단일 저장소 운영 전환' --body-file /path/to/issue-body.md --label '🧹 chore'
-python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 운영 전환' --body-file /path/to/pr-body.md
+python3 scripts/check_submission.py --kind issue --template init --title '[init] 제품별 저장소 분리' --body-file /path/to/issue-body.md --label '🧹 chore'
+python3 scripts/check_submission.py --kind pr --title 'chore: 앱 저장소 범위 정리' --body-file /path/to/pr-body.md
 ```
 
 이슈의 `--template`은 `bug|proposal|feature|fix|docs|init|refactor|task` 중 해당 형식을 지정한다. helper도
@@ -60,9 +60,9 @@ python3 scripts/check_submission.py --kind pr --title 'chore: 단일 저장소 �
 
 ## 출처와 독립 배포
 
-- 앱 태그는 `macos-vVERSION`, PyPI 태그는 `pypi-vVERSION`이며 버전과 배포 시점은 독립적이다. 과거 문서의 앱 `vVERSION` 표기는 이전 snapshot 배포 방식이며, 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었다.
+- 이 저장소의 앱 태그는 `macos-vVERSION`이다. Python 제품의 버전·태그·배포는 `heic-converter-tui`에서 독립 관리하며 이 저장소에 새 PyPI 릴리스를 만들지 않는다. 과거 앱 `vVERSION`·통합 PyPI 태그 안내는 당시 기록으로 구분하고 기존 태그를 재작성하지 않는다.
 - `SOURCE.json`은 초기 공개 snapshot 기록으로 불변이다. baseline `77908397ffb24dc1881ea1f0ebfc5d9d9c977852`의 Git blob 기준 검증을 사용하며 현재 작업 트리 해시로 갱신하지 않는다.
-- 앱은 Swift 네이티브 worker와 macOS Image I/O·Core Image·시스템 zlib을 사용한다. Python 런타임·Pillow·외부 코덱을 앱에 포함하지 않는다. Python 환경은 빌드 검증·CLI/TUI에만 사용하며 PyPI 구현은 유지한다.
+- 앱은 Swift 네이티브 worker와 macOS Image I/O·Core Image·시스템 zlib을 사용한다. Python 런타임·Pillow·외부 코덱을 앱에 포함하지 않는다. Python 환경은 앱 빌드·검증 도구로 계속 사용할 수 있으며, PyPI 제품 코드는 담당 저장소에서 관리한다.
 - 새 release manifest는 스키마 2와 `engine: swift-imageio`를 사용하며 같은 공개 저장소의 같은 빌드 SHA와 `.github/workflows/macos.yml` 실행 및 산출물 해시를 기록한다. 초기 snapshot의 private SHA를 새 빌드 출처로 쓰지 않는다.
 - draft release는 기본 disabled다. `HEICCY_RELEASE_ENABLED`, `public-release` environment와 해당 job의 `contents: write` 권한을 가진 `github.token`을 사용하며 PAT를 도입하지 않는다. 태그 생성·push와 실제 릴리스 동작은 별도 승인 후 수행한다.
 - Developer ID 서명·Apple 공증은 기존 미적용 상태를 유지해 기록한다. 빌드 성공을 실기·공개 다운로드 검증 완료로 보고하지 않는다.

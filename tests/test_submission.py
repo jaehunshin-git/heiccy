@@ -143,6 +143,9 @@ def test_public_issue_forms_are_supported():
         == []
     )
     assert checker.check_submission("issue", "[버그] 패널 표시 문제", bug, labels=[])
+    assert "사용 구성 요소는 macOS 앱이어야 합니다." in checker.check_submission(
+        "issue", "[버그] 터미널 실행 문제", bug.replace("macOS 앱\n", "CLI/TUI\n"), labels=["bug"]
+    )
 
 
 @pytest.mark.parametrize(

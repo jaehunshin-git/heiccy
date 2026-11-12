@@ -1,6 +1,9 @@
 # heiccy 소스 빌드
 
-공개 소스에서 macOS 앱·DMG와 Python 패키지를 빌드하고 검증하는 안내입니다.
+공개 소스에서 macOS 앱·DMG를 빌드하고 검증하는 안내입니다.
+2026-10-18 [제품별 저장소 분리 결정](decisions/2026-10-18-product-repository-split.md)에 따라
+Python CLI/TUI·PyPI는 `heic-converter-tui`가 담당합니다. 앱 빌드·검증용
+Python 도구는 이 저장소에서 유지합니다.
 소스 기여와 제출 절차는 [기여 안내](../CONTRIBUTING.md)를 참고하세요.
 초기 소스 기록 보존과 새 릴리스 manifest의 출처 규칙은
 [저장소 운영](repository-operations.md)에서 확인할 수 있습니다.
@@ -13,9 +16,12 @@
 - `uv` 0.11.11, 빌드·검증용 Python 3.12.12
 
 ```bash
-uv sync --group dev
-uvx ruff==0.14.4 check --config pyproject.toml src tests scripts packaging/macos packaging/release
-uv run pytest
+uv python install 3.12.12
+uv venv --python 3.12.12 .venv-app-build
+uv pip sync --python .venv-app-build/bin/python --require-hashes \
+  packaging/macos/requirements.lock
+.venv-app-build/bin/ruff check tests scripts packaging
+.venv-app-build/bin/python -m pytest
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 swift test --package-path macos
 bash packaging/macos/build.sh
@@ -25,13 +31,13 @@ bash packaging/macos/build.sh
 수행하므로 실행 중 Finder가 열리거나 앱 포커스가 바뀔 수 있습니다.
 의존성은 `packaging/macos/requirements.lock`의 버전과 해시로 고정합니다.
 앱 화면과 worker는 Swift로 빌드하며 macOS Image I/O와 시스템 zlib을 사용합니다.
-Python은 아이콘 생성·합성 사진 테스트·CLI 검증 등 빌드 도구에만 사용합니다.
+Python은 아이콘 생성·합성 사진 테스트·앱 및 저장소 운영 검증 등 빌드 도구에만 사용합니다.
 앱에 Python 런타임·Pillow·외부 코덱을 포함하지 않습니다.
 
 소스 기여자는 `bash scripts/install_git_hooks.sh`로 커밋 메시지 검사 훅을
 설치할 수 있습니다. 규칙·기존 훅 설정·해제 방법은
 [Git 훅 안내](../.github/commit-message-hooks.md)를 참고하세요. 개발용 훅은 공개 소스에
-포함하며 PyPI 배포에는 포함하지 않습니다.
+포함합니다.
 
 ## 산출물
 
@@ -44,12 +50,12 @@ cd dist/macos
 shasum -a 256 -c heiccy-1.0.0-arm64.dmg.sha256
 ```
 
-앱 버전은 `packaging/macos/Info.plist`, Python 패키지 버전은 `pyproject.toml`에서
-독립적으로 관리합니다. 앱 번들 ID와 `converter.settings` 키를 유지합니다.
-신규 앱 태그는 `macos-vVERSION`, PyPI 태그는 `pypi-vVERSION`을 사용하며 과거 문서의
+앱 버전은 `packaging/macos/Info.plist`에서 관리합니다. Python 제품의 버전·태그는
+`heic-converter-tui`에서 독립 관리합니다. 앱 번들 ID와 `converter.settings` 키를 유지합니다.
+신규 앱 태그는 `macos-vVERSION`을 사용하며 과거 문서의
 앱 `vVERSION`은 이전 snapshot 배포 표기입니다. `.github/workflows/macos.yml`은 같은 공개
 SHA를 macOS 15·26에서 검증하고 macOS 15의 DMG를 게시 대상으로 선택하도록
-전환합니다. 두 OS의 DMG는 독립 빌드이므로 서로 같은 바이트일 필요는 없지만 게시
+구성합니다. 두 OS의 DMG는 독립 빌드이므로 서로 같은 바이트일 필요는 없지만 게시
 파일은 선택한 CI 산출물과 SHA-256이 같아야 합니다.
 `release-manifest-macos-15.json`·`release-manifest-macos-26.json`의 저장소는
 `jaehunshin-git/heiccy`, 소스 SHA는 동일한 실제 공개 빌드 SHA, workflow는
@@ -84,30 +90,3 @@ JPEG·PNG 변환은 macOS Image I/O를 사용하고 PNG 압축 수준 0~9는 시
 안전한 EXIF 분리가 불가능한 구조는 정보를 섞어 저장하지 않고 해당 파일의 변환 실패로 보고합니다.
 출력 볼륨이 배타적 rename이나 hard link를 모두 지원하지 않으면 비덮어쓰기 저장은 실패합니다.
 기존 파일을 덮어쓰거나 빈 예약 파일을 남기는 방식으로 우회하지 않습니다.
-
-## Python 패키지
-
-이름 `heic-converter-tui`와 명령 `heic-converter`는 유지합니다. PyPI 설명은
-영문 `README.pypi.md`를 사용합니다. 앱 전용 배포는 PyPI에 업로드하지 않습니다.
-
-```bash
-uv build
-.venv-app-build/bin/python packaging/macos/validate_python_dist.py dist
-```
-
-sdist는 명시된 허용 목록만 포함합니다. `input/`·`output/`의 사진과 개인 파일은
-어떤 배포에도 포함하지 않습니다. 이미 게시된 Python 버전은 덮어쓰지 않습니다.
-
-PyPI 배포는 앱 릴리스와 별도로 진행합니다.
-
-1. CLI/TUI 변경이 배포 대상일 때만 `pyproject.toml`의 Python 버전과 관련 잠금
-   정보를 갱신합니다. 앱 버전·태그와 같게 맞출 필요는 없습니다.
-2. 영어 `README.pypi.md`·Summary를 검토하고 Python 테스트·wheel/sdist 허용 목록
-   검증을 통과시킵니다. 설치 명령 `heic-converter`를 확인합니다.
-3. 승인된 PR이 main에 반영된 커밋에 별도 `pypi-v<Python 버전>` 태그를 만듭니다.
-   해당 태그의 CI는 검증만 실행하며 앱 draft와 PyPI 업로드를 실행하지 않습니다.
-4. PyPI 업로드를 별도로 승인받은 뒤 해당 버전의 wheel/sdist 두 파일만
-   `uv publish`로 업로드합니다. DMG·코덱 소스·과거 버전 파일은 업로드 대상이 아닙니다.
-   인증 정보는 저장소나 로그에 넣지 않습니다.
-5. 게시된 PyPI 버전·영문 설명·설치 명령을 확인합니다. 같은 버전의 덮어쓰기나
-   앱 배포를 통한 Python 버전 게시를 하지 않습니다.

@@ -478,7 +478,9 @@ def test_workflow_pr_permissions_and_release_boundary(workflow):
         r"\bgit\s+(?:[^\n]*\s)?(?:commit|push|tag|config|add)\b", workflow
     )
     assert "twine" not in workflow and "pypa/gh-action-pypi-publish" not in workflow
-    assert "tags: ['macos-v*', 'pypi-v*']" in validate
+    assert "tags: ['macos-v*']" in validate
+    for product_artifact in ("pypi-v", "dist/*.whl", "dist/*.tar.gz", "validate_python_dist", "python -m build"):
+        assert product_artifact not in workflow
     assert not re.search(r"\$\{\{\s*github\.event\.(?:pull_request|issue)", workflow)
     assert release.count("github-token: ${{ github.token }}") == 2
     assert release.count("run-id: ${{ github.run_id }}") == 2

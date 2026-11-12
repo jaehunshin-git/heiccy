@@ -39,16 +39,6 @@ Python 런타임과 외부 코덱을 앱에 포함하지 않고, 따로 설치�
 | 메타데이터 정책 | 기본 설정은 GPS·XMP를 제거합니다. 원본 정보 보존 또는 EXIF·XMP 제거도 선택할 수 있습니다. |
 | 로컬 처리 | 사진을 서버로 보내지 않으며 원본 파일을 변경하거나 클립보드 이력을 저장하지 않습니다. |
 
-### 앱과 CLI/TUI
-
-같은 저장소에서 폴더 변환과 스크립트 자동화를 위한 Python CLI·방향키 TUI도
-제공합니다. 필요한 사용 방식에 따라 설치하세요. 버전과 배포 시점은 독립적입니다.
-
-| 제품 | 사용 방식 | 설치 |
-| --- | --- | --- |
-| heiccy macOS 앱 | Photos·Finder에서 복사 → 자동 변환 → 붙여넣기 | DMG로 설치, Python 불필요 |
-| CLI/TUI | 터미널에서 폴더 일괄 변환·스크립트 실행 | [PyPI 패키지 설치](#clitui), Python 3.11 이상 필요 |
-
 ## 기술 스택
 
 | Category | 기술 |
@@ -56,7 +46,6 @@ Python 런타임과 외부 코덱을 앱에 포함하지 않고, 따로 설치�
 | App | Swift, SwiftUI, AppKit |
 | Conversion | macOS Image I/O, Core Image |
 | Compression | macOS 시스템 zlib |
-| CLI/TUI | Python, Pillow, pillow-heif |
 
 ## macOS 앱 설치
 
@@ -157,211 +146,12 @@ heiccy를 먼저 종료합니다.
 사용 중 발견한 문제는 [heiccy 이슈](https://github.com/jaehunshin-git/heiccy/issues)에
 접수할 수 있습니다.
 
-## CLI/TUI
-
-[![PyPI](https://img.shields.io/pypi/v/heic-converter-tui?logo=pypi&logoColor=white)](https://pypi.org/project/heic-converter-tui/)
-[![Python 패키지 다운로드](https://api.pepy.tech/personalized-badge/heic-converter-tui?period=month&units=none&left_color=grey&right_color=blue&left_text=downloads%2Fmonth)](https://pepy.tech/projects/heic-converter-tui)
-[![Python](https://img.shields.io/badge/Python-%E2%89%A53.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-
-[PyPI 패키지](https://pypi.org/project/heic-converter-tui/)는 터미널에서 폴더를 변환할 때
-사용합니다. 배포 이름은 `heic-converter-tui`, 실행 명령은 `heic-converter`를 유지합니다.
-이 패키지 설치로 macOS 독립 앱이 설치되지는 않습니다.
-
-### CLI/TUI 요구 사항
-
-- Python 3.11 이상
-- macOS 우선 지원
-- `uv` 또는 `pipx`
-
-런타임 의존성인 Pillow와 pillow-heif는 설치 명령이 함께 설치합니다.
-
-### 설치
-
-`uv`를 사용하면 다음과 같이 설치합니다.
-
-```bash
-uv tool install heic-converter-tui
-```
-
-`pipx`를 사용할 수도 있습니다.
-
-```bash
-pipx install heic-converter-tui
-```
-
-설치된 배포 패키지 이름은 `heic-converter-tui`, 실행 명령은
-`heic-converter`입니다. 다음 명령으로 설치를 확인할 수 있습니다.
-
-```bash
-heic-converter --help
-```
-
-### TUI로 실행
-
-인수 없이 실제 터미널에서 실행합니다.
-
-```bash
-heic-converter
-```
-
-먼저 `한국어` 또는 `English`를 고릅니다. 이후 질문, 검증 오류, 선택지, 요약과
-취소 안내는 선택한 언어로 표시됩니다. 선택 항목은 `↑`/`↓` 방향키로 이동하고
-Enter로 확정합니다. 경로는 직접 입력합니다.
-
-```text
-HEIC Converter TUI
-
-? 언어 / Language 한국어
-
-HEIC 이미지 변환 설정
-
-? 입력 디렉터리 경로 ./input
-? 출력 디렉터리 경로 ./output
-? 출력 형식 JPEG
-? JPEG 품질 높음 (90)
-? 하위 디렉터리도 변환할까요? 아니요 — 현재 디렉터리만
-? 메타데이터 처리 안전하게 유지 (권장) — GPS 등 민감 정보는 제거
-? 같은 이름의 출력 파일이 있을 때 이름 변경 (권장) — 번호를 붙여 새 파일 생성
-
-설정 요약
-  입력 디렉터리: input
-  출력 디렉터리: output
-  출력 형식: JPEG (JPEG 품질 90)
-  하위 디렉터리 포함: 아니요
-  메타데이터: safe
-  파일 충돌 처리: rename
-
-? 이 설정으로 변환을 시작할까요? 시작
-```
-
-`Ctrl+C`를 누르거나 마지막 단계에서 `취소`를 선택하면 변환하지 않고 종료 코드
-`130`으로 끝납니다.
-
-### 명령어로 실행
-
-스크립트나 자동화 환경에서는 출력 형식을 명시합니다.
-
-```bash
-# input 디렉터리의 HEIC를 JPEG로 변환
-heic-converter --input ./input --output ./output --format jpeg
-
-# photos 디렉터리의 HEIC를 PNG로 변환
-heic-converter --input ./photos --output ./converted --format png
-
-# 하위 디렉터리까지 검색하고 기존 결과가 있으면 새 이름으로 저장
-heic-converter \
-  --input ./photos \
-  --output ./converted \
-  --format jpeg \
-  --recursive \
-  --on-conflict rename
-```
-
-TTY가 아닌 환경에서 `--format`을 생략하면 사용법 오류로 종료합니다.
-
-### 업데이트와 삭제
-
-`uv`로 설치한 패키지는 다음과 같이 관리합니다.
-
-```bash
-uv tool upgrade heic-converter-tui
-uv tool uninstall heic-converter-tui
-```
-
-`pipx`를 사용했다면 다음 명령을 실행합니다.
-
-```bash
-pipx upgrade heic-converter-tui
-pipx uninstall heic-converter-tui
-```
-
-## CLI/TUI 동작 및 옵션
-
-이 절의 옵션과 파일 처리 규칙은 Python 패키지 `heic-converter`에 해당합니다.
-앱의 설정은 [변환 설정](#변환-설정)을 참고하세요.
-
-### 명령 형식
-
-```text
-heic-converter --input INPUT --output OUTPUT --format {jpeg,png} [옵션]
-```
-
-`--input`과 `--output`은 디렉터리 경로입니다. 기본값은 각각 `./input`과
-`./output`입니다. 두 디렉터리에 같은 경로를 지정할 수 없으며 단일 파일 입력은
-지원하지 않습니다.
-
-| 옵션 | 설명 | 기본값 |
-| --- | --- | --- |
-| `-i, --input PATH` | 입력 HEIC 디렉터리 | `./input` |
-| `-o, --output PATH` | 출력 디렉터리 | `./output` |
-| `-f, --format {jpeg,png}` | 출력 형식 | 비대화형 실행에서 필수 |
-| `--jpeg-quality N` | JPEG 품질, 1~100 | `90` |
-| `--png-compression N` | PNG 압축 수준, 0~9 | `6` |
-| `--recursive` | 하위 디렉터리까지 검색 | 꺼짐 |
-| `--metadata {safe,preserve,strip}` | 메타데이터 처리 정책 | `safe` |
-| `--on-conflict {rename,skip,overwrite,error}` | 출력 파일 충돌 정책 | `rename` |
-
-JPEG 출력은 `.jpeg`, PNG 출력은 `.png` 확장자를 사용합니다.
-TUI에서는 자주 쓰는 품질·압축 사전 설정을 고르며, CLI에서는 위 범위 안의 값을
-직접 지정할 수 있습니다.
-
-### 메타데이터와 이미지 처리
-
-| 정책 | 동작 |
-| --- | --- |
-| `safe` | GPS와 XMP를 제거하고 나머지 EXIF와 ICC 프로파일을 가능한 범위에서 보존합니다. |
-| `preserve` | EXIF, XMP, ICC 프로파일을 가능한 범위에서 보존합니다. |
-| `strip` | EXIF·XMP와 SDR 색상 프로파일을 제거합니다. HDR PNG의 색 재현에 필요한 ICC 또는 CICP 정보는 유지합니다. |
-
-변환 시 이미지 방향을 픽셀에 반영하고, 메타데이터를 저장하는 경우 출력 EXIF 방향
-값을 `1`로 정규화합니다. JPEG는 알파 채널을 지원하지 않으므로 투명 영역을 흰색
-배경과 합성합니다. PNG는 알파 채널을 유지합니다.
-
-macOS 15 이상에서 지원하는 Apple HDR 게인 맵이 있고 방향 보정이 필요 없으면
-16비트 HDR PNG로 변환할 수 있습니다. 그 외에는 기본 SDR 이미지를 저장하므로
-HDR 화면에서 원본과 다르게 보일 수 있습니다. JPEG 출력은 SDR입니다.
-Python CLI/TUI의 PNG 압축 설정은 Pillow의 SDR 변환에 적용하며, HDR 변환 경로는
-macOS 인코더의 압축을 사용합니다. 앱의 PNG 압축 설정은 SDR·HDR 모두에 적용됩니다.
-
-### 파일 검색과 충돌 처리
-
-- 확장자가 `.heic`인 파일만 처리하며 대소문자를 구분하지 않습니다. `.heif`는
-  지원하지 않습니다.
-- 기본적으로 입력 디렉터리 바로 아래만 검색합니다. `--recursive`를 사용하면 하위
-  디렉터리까지 검색하고 상대 디렉터리 구조를 출력에 유지합니다.
-- 출력 디렉터리가 입력 디렉터리 안에 있어도 출력 트리는 검색 대상에서 제외합니다.
-- `rename`은 `photo.jpeg`, `photo-2.jpeg`, `photo-3.jpeg`처럼 사용 가능한 이름을
-  자동으로 선택합니다.
-- `skip`은 기존 파일을 유지하고 해당 입력을 건너뜁니다.
-- `overwrite`는 기존 출력 파일을 교체합니다.
-- `error`는 충돌한 파일을 실패로 기록하고 다음 입력을 계속 처리합니다.
-- 완성된 결과만 나타나도록 출력 디렉터리의 임시 파일에 먼저 저장합니다.
-
-### 지원 범위
-
-HEIC의 기본 정지 이미지 한 장만 JPEG 또는 PNG로 변환합니다. 다음 기능은 지원하지
-않습니다.
-
-- PDF 또는 HWP/HWPX 변환
-- OCR 및 텍스트 추출
-- Live Photo의 동영상 처리
-- 기본 정지 이미지 이외의 보조 이미지, 시퀀스 또는 동영상 추출
-- 단일 파일 입력
-
-### 종료 코드
-
-| 코드 | 의미 |
-| --- | --- |
-| `0` | 모든 입력을 성공적으로 처리함 |
-| `1` | 하나 이상의 파일을 읽거나 변환하거나 저장하는 중 오류가 발생함 |
-| `2` | 인수·경로·옵션이 잘못됐거나 변환할 `.heic` 파일이 없음 |
-| `130` | 대화형 화면에서 `Ctrl+C`를 누르거나 변환을 취소함 |
-
 ## 배포와 문서
 
-macOS 앱은 [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases),
-CLI/TUI는 [PyPI](https://pypi.org/project/heic-converter-tui/)에서 배포합니다.
-두 제품의 버전과 배포 시점은 독립적입니다.
+macOS 앱은 [GitHub Releases](https://github.com/jaehunshin-git/heiccy/releases)에서
+배포합니다. Python CLI/TUI는 별도
+[heic-converter-tui 저장소](https://github.com/jaehunshin-git/heic-converter-tui)에서
+개발·배포합니다.
 
 - [클립보드 호환성과 지원 범위](docs/compatibility.md)
 - [앱 빌드·배포 안내](docs/build.md)
@@ -379,4 +169,3 @@ CLI/TUI는 [PyPI](https://pypi.org/project/heic-converter-tui/)에서 배포합�
 어떠한 보증도 없이 제공되며, 자세한 조건은 [LICENSE](LICENSE)를 참고하세요.
 앱은 macOS 기본 이미지 기능을 사용하며 Python이나 외부 코덱을 배포하지 않습니다.
 앱의 MIT 전문과 구성 고지는 `Contents/Resources/Licenses`에서 확인할 수 있습니다.
-별도 Python CLI/TUI의 의존성은 각각의 라이선스를 따릅니다.

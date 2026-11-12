@@ -1,14 +1,10 @@
-"""PyPI 배포 메타데이터와 네이티브 앱 패키징을 검증한다."""
+"""네이티브 앱 패키징을 검증한다."""
 
 import importlib.util
-import io
 import os
 import plistlib
 import subprocess
 import sys
-import tarfile
-import tomllib
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -29,76 +25,7 @@ def load_script(name):
     return module
 
 
-validator = load_script("validate_python_dist")
 licenses = load_script("collect_licenses")
-
-
-def package_metadata(body, *, newline="\n", summary="Local HEIC converter"):
-    return (
-        f"Metadata-Version: 2.4{newline}"
-        f"Version: 0.3.0{newline}"
-        f"Summary: {summary}{newline}"
-        f"Description-Content-Type: text/markdown{newline}{newline}{body}"
-    ).encode()
-
-
-@pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_pypi_readme_passes_english_metadata_validation(newline):
-    validator.metadata(
-        package_metadata((ROOT / "README.pypi.md").read_text(), newline=newline)
-    )
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        "HEIC install\n한국어로 작성한 설명입니다.",
-        "HEIC install\n[README.ko.md](README.ko.md) 한국어 설명",
-        "HEIC install\n```text\n한국어 설명\n```",
-        "HEIC install\nChoose `한국어` 먼저 선택하세요.",
-        "HEIC install\n“클립보드 감지 켜짐” 한국어 설명",
-        "HEIC install\n? Language / 언어 English 추가 설명",
-        "HEIC install\n한글",
-        "HEIC install\nㅎㅏㄴㄱㅡㄹ",
-    ],
-)
-def test_korean_prose_cannot_hide_in_links_quotes_or_code(body):
-    with pytest.raises(AssertionError):
-        validator.metadata(package_metadata(body))
-
-
-def test_encoded_korean_summary_is_rejected():
-    with pytest.raises(AssertionError):
-        validator.metadata(
-            package_metadata("HEIC install", summary="=?utf-8?b?7ZWc6riA?=")
-        )
-
-
-def test_invalid_utf8_is_rejected_without_replacement():
-    with pytest.raises(UnicodeDecodeError):
-        validator.metadata(package_metadata("HEIC install") + b"\xff")
-
-
-@pytest.mark.parametrize("bad_archive", ["wheel", "sdist"])
-def test_archive_entrypoint_rejects_korean_description(
-    tmp_path, monkeypatch, bad_archive
-):
-    english = package_metadata("HEIC install instructions")
-    korean = package_metadata("HEIC install\n한국어 설명")
-    wheel = tmp_path / "heic_converter_tui-0.3.0-py3-none-any.whl"
-    with zipfile.ZipFile(wheel, "w") as archive:
-        archive.writestr(
-            "heic_converter_tui-0.3.0.dist-info/METADATA",
-            korean if bad_archive == "wheel" else english,
-        )
-    with tarfile.open(tmp_path / "heic_converter_tui-0.3.0.tar.gz", "w:gz") as archive:
-        contents = korean if bad_archive == "sdist" else english
-        info = tarfile.TarInfo("heic_converter_tui-0.3.0/PKG-INFO")
-        info.size = len(contents)
-        archive.addfile(info, io.BytesIO(contents))
-    monkeypatch.setattr(sys, "argv", ["validate_python_dist.py", str(tmp_path)])
-    with pytest.raises(AssertionError):
-        validator.main()
 
 
 def test_native_notices_need_no_installed_runtime_packages(tmp_path, monkeypatch):
@@ -338,51 +265,6 @@ def test_native_app_stops_on_failed_signature_verification(native_app, monkeypat
     monkeypatch.setattr(validation, "output", output)
     with pytest.raises(subprocess.CalledProcessError):
         validation.validate(app)
-
-
-def test_pypi_description_and_sdist_use_dedicated_readme():
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    project = config["project"]
-    assert project["name"] == "heic-converter-tui"
-    assert project["version"] == "0.3.0"
-    assert project["scripts"] == {"heic-converter": "heic_converter.cli:run"}
-    assert project["readme"] == "README.pypi.md"
-    assert project["urls"] == {
-        "Repository": "https://github.com/jaehunshin-git/heiccy",
-        "Homepage": "https://github.com/jaehunshin-git/heiccy",
-        "Issues": "https://github.com/jaehunshin-git/heiccy/issues",
-    }
-    assert config["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"] == [
-        "src", "tests", "pyproject.toml", "README.pypi.md", "LICENSE",
-    ]
-
-
-def test_pypi_readme_links_to_public_repository_without_app_installation():
-    readme = (ROOT / "README.pypi.md").read_text()
-    assert "https://github.com/jaehunshin-git/heiccy" in readme
-    assert "https://github.com/jaehunshin-git/heic-converter-tui" not in readme
-    assert "](LICENSE)" not in readme
-    assert "](docs/" not in readme
-    assert ".dmg" not in readme.lower()
-    assert ".app" not in readme.lower()
-
-
-@pytest.mark.parametrize("name", ["README.pypi.md", "README.md", "README.ko.md", "input/photo.heic"])
-def test_sdist_description_allowlist(tmp_path, monkeypatch, name):
-    contents = package_metadata((ROOT / "README.pypi.md").read_text())
-    with zipfile.ZipFile(tmp_path / "heic_converter_tui-0.3.0-py3-none-any.whl", "w") as archive:
-        archive.writestr("heic_converter_tui-0.3.0.dist-info/METADATA", contents)
-    with tarfile.open(tmp_path / "heic_converter_tui-0.3.0.tar.gz", "w:gz") as archive:
-        for filename, body in [("PKG-INFO", contents), (name, b"fixture")]:
-            info = tarfile.TarInfo(f"heic_converter_tui-0.3.0/{filename}")
-            info.size = len(body)
-            archive.addfile(info, io.BytesIO(body))
-    monkeypatch.setattr(sys, "argv", ["validate_python_dist.py", str(tmp_path)])
-    if name == "README.pypi.md":
-        validator.main()
-    else:
-        with pytest.raises(AssertionError):
-            validator.main()
 
 
 @pytest.fixture

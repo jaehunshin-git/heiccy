@@ -4,7 +4,7 @@ macOS 앱의 표시 이름은 **heiccy**다. Apple Silicon arm64, macOS 15 이�
 
 ## 고정 환경
 
-빌드에는 Xcode Command Line Tools 또는 Xcode의 Swift 도구와 uv 0.11.11이 필요하다. `build.sh`가 CPython 3.12.12와 `.venv-app-build`를 생성한다. `requirements-pins.txt`에 모든 직접·전이 의존성 버전을 고정했고 `requirements.lock`은 배포 파일 SHA-256을 함께 고정한다. 빌드 시 `uv pip sync --require-hashes`로 잠금 파일을 적용한다. 앱 빌드 도구는 기존 CLI 기본 설치 의존성에 추가하지 않는다.
+빌드에는 Xcode Command Line Tools 또는 Xcode의 Swift 도구와 uv 0.11.11이 필요하다. `build.sh`가 CPython 3.12.12와 `.venv-app-build`를 생성한다. `requirements-pins.txt`에 모든 직접·전이 의존성 버전을 고정했고 `requirements.lock`은 배포 파일 SHA-256을 함께 고정한다. 빌드 시 `uv pip sync --require-hashes`로 잠금 파일을 적용한다. Python CLI/TUI 제품은 별도 저장소에서 관리한다.
 
 의존성을 갱신할 때 고정 버전 목록을 편집한 뒤 같은 arm64 Python 환경에서 잠금 파일을 다시 생성한다.
 
@@ -15,7 +15,7 @@ uv pip compile --python .venv-app-build/bin/python \
 bash packaging/macos/build.sh
 ```
 
-이 Python 환경은 합성 HEIC 생성·아이콘·검증·CLI 회귀 검사에만 사용하며 앱에 복사하지 않는다.
+이 Python 환경은 합성 HEIC 생성·아이콘·앱 및 저장소 운영 검증에만 사용하며 앱에 복사하지 않는다.
 `requirements.in`은 주요 도구의 선정 버전을 기록한 참고 목록이며 실제 설치에는 전체 버전과 해시가 고정된 `requirements.lock`만 사용한다.
 
 ## 조립 및 검증
@@ -34,7 +34,7 @@ DMG 생성의 최종 오류가 `hdiutil: create failed - Resource busy`인 경�
 정리한다. 다른 오류·300초 타임아웃·재시도 소진은 빌드를 중단하며 검증 실패는 재시도하지
 않는다. 이전 체크섬은 생성 전에 제거하고 성공 후 다시 만든다.
 
-산출물은 다음과 같다. 앱 표시 이름과 패널 이름은 `heiccy`이며, 내부 실행 파일 `HEICConverter`와 번들 ID `io.github.jaehunshin-git.heic-converter`는 유지한다. PyPI 패키지·CLI 이름과 기존 `~/Pictures/HEIC Converter` 출력 폴더도 유지한다.
+산출물은 다음과 같다. 앱 표시 이름과 패널 이름은 `heiccy`이며, 내부 실행 파일 `HEICConverter`와 번들 ID `io.github.jaehunshin-git.heic-converter`는 유지한다. 기존 `~/Pictures/HEIC Converter` 출력 폴더도 유지한다.
 
 - `dist/macos/heiccy.app`
 - `dist/macos/heiccy-1.0.0-arm64.dmg`
@@ -47,22 +47,17 @@ DMG 생성의 최종 오류가 `hdiutil: create failed - Resource busy`인 경�
 .venv-app-build/bin/python packaging/macos/test_native_worker.py 'dist/macos/heiccy.app/Contents/Resources/worker/heic-worker'
 .venv-app-build/bin/python packaging/macos/test_panel_startup.py 'dist/macos/heiccy.app'
 .venv-app-build/bin/python packaging/macos/validate_dmg.py dist/macos/heiccy-1.0.0-arm64.dmg
-.venv-app-build/bin/python -m build --no-isolation
-.venv-app-build/bin/python packaging/macos/validate_python_dist.py dist
 ```
-
-wheel과 sdist는 버전 0.3.0, 지정 경로 허용 목록, 영어 Summary와 README.pypi.md 본문을 검사한다. Hatch가 자동 포함하는 루트 `.gitignore`와 `PKG-INFO`는 sdist 허용 목록에 포함한다. 사진, 개발 환경, Swift 앱 소스와 패키징 소스는 Python 배포 파일에 포함하지 않는다.
 
 ## 설치와 배포
 
 DMG를 열고 heiccy를 Applications로 드래그한다. 첫 실행이 차단되면 한 번 실행을 시도한 뒤 시스템 설정 → 개인정보 보호 및 보안 → 확인 없이 열기로 허용한다. ad-hoc 서명과 DMG는 Developer ID 서명·공증이나 Gatekeeper 신뢰를 제공하지 않는다. 이 버전은 Developer ID 서명과 공증을 수행하지 않는다.
 
-개발·빌드·배포의 단일 원본은 공개 `jaehunshin-git/heiccy`입니다. 기존 private는
-기록 보존용이며 소스 사본을 export해 별도 공개 커밋을 만드는 절차를 신규 배포에
-사용하지 않습니다. private Git 이력·내부 문서·개인 파일을 복사하지 않습니다.
+앱 개발·빌드·배포 원본은 공개 `jaehunshin-git/heiccy`입니다. Python 제품은
+`jaehunshin-git/heic-converter-tui`에서 독립 운영합니다. 소스 사본을 export해
+별도 공개 커밋을 만드는 절차는 신규 앱 배포에 사용하지 않습니다. private Git 이력·내부 문서·개인 파일을 복사하지 않습니다.
 
-신규 앱 태그는 `macos-vVERSION`, Python 태그는 `pypi-vVERSION`이며 버전과
-배포 시점은 독립적입니다. 과거 문서의 앱 `vVERSION`은 이전 snapshot 배포 표기이며 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었습니다. 앱 배포는
+신규 앱 태그는 `macos-vVERSION`입니다. 과거 문서의 앱 `vVERSION`은 이전 snapshot 배포 표기이며 2026-10-13 전환 점검에서 원격 앱 태그·릴리스는 없었습니다. 앱 배포는
 PyPI 업로드를 실행하지 않습니다. `.github/workflows/macos.yml`에서 같은 공개
 SHA를 macOS 15·26에서 검증하고 macOS 15 산출물을 게시 대상으로 선택하도록
 전환합니다. 새 manifest는 같은 공개 저장소·같은 공개 SHA·해당 workflow 실행과

@@ -1,9 +1,9 @@
-name: macOS 앱 및 Python 검증
+name: macOS 앱 검증
 
 on:
   push:
     branches: ['**']
-    tags: ['macos-v*', 'pypi-v*']
+    tags: ['macos-v*']
   pull_request:
   workflow_dispatch:
 
@@ -38,10 +38,10 @@ jobs:
           uv python install 3.12.12
           uv venv --python 3.12.12 .venv-app-build
           uv pip sync --python .venv-app-build/bin/python --require-hashes packaging/macos/requirements.lock
-      - name: Python 정적 검사와 회귀 테스트
+      - name: 앱 도구 정적 검사와 회귀 테스트
         run: |
-          .venv-app-build/bin/ruff check --config pyproject.toml src tests scripts packaging/macos packaging/release
-          PYTHONPATH=src .venv-app-build/bin/python -m pytest
+          .venv-app-build/bin/ruff check --config pyproject.toml tests scripts packaging/macos packaging/release
+          .venv-app-build/bin/python -m pytest
       - name: 과거 공개 소스 baseline 보존 검증
         run: .venv-app-build/bin/python packaging/release/verify_source_snapshot.py
       - name: Swift 빌드와 회귀 테스트
@@ -51,6 +51,7 @@ jobs:
           # 최신 Swift의 swift test가 실행 대상 XCTest 번들을 생략하는 경우도 검증한다.
           test_bin="$(swift build --package-path macos --show-bin-path)"
           if [ -d "$test_bin/HEICConverterTests.xctest" ]; then
+            xcrun xctest "$test_bin/ConverterKitTests.xctest"
             xcrun xctest "$test_bin/HEICConverterTests.xctest"
             xcrun xctest "$test_bin/NativeWorkerTests.xctest"
           else
@@ -62,11 +63,6 @@ jobs:
       - name: 앱과 DMG 조립 및 설치본 검증
         timeout-minutes: 20
         run: bash packaging/macos/build.sh
-      - name: Python 배포 파일 빌드와 허용 목록 검증
-        # pypi-vVERSION도 검증만 실행한다. PyPI 실제 업로드는 별도 절차다.
-        run: |
-          .venv-app-build/bin/python -m build --no-isolation
-          .venv-app-build/bin/python packaging/macos/validate_python_dist.py dist
       - name: 네이티브 앱 빌드 manifest 생성
         env:
           SOURCE_REPOSITORY: ${{ github.repository }}
@@ -89,8 +85,6 @@ jobs:
             dist/macos/heiccy-*-arm64.dmg
             dist/macos/heiccy-*-arm64.dmg.sha256
             dist/macos/release-manifest-*.json
-            dist/*.whl
-            dist/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -99,7 +93,7 @@ jobs:
     needs: validate
     # 기본 비활성. 승인된 환경과 저장소 변수로 macos-vVERSION push만 활성화한다.
     # 과거 문서의 앱 vVERSION은 snapshot 방식의 표기이며 새 태그로 사용하지 않는다.
-    # PR·브랜치·수동 실행·pypi-vVERSION은 이 job을 실행하지 않는다.
+    # PR·브랜치·수동 실행은 이 job을 실행하지 않는다.
     if: >-
       github.repository == 'jaehunshin-git/heiccy' &&
       github.event_name == 'push' &&

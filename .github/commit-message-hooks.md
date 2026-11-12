@@ -147,15 +147,15 @@ Git 내부 커밋 생성 경로도 훅 호출을 보장하지 않으며, 강제 
 ```sh
 python3 scripts/check_commit_message.py /path/to/COMMIT_EDITMSG
 python3 scripts/check_commit_message.py --rules scripts/commit_message_rules.json /path/to/message
-uv run pytest tests/test_commit_message.py
-uvx --from ruff==0.14.4 ruff check --config pyproject.toml src tests scripts packaging/macos
+.venv-app-build/bin/python -m pytest tests/test_commit_message.py
+.venv-app-build/bin/ruff check --config pyproject.toml tests scripts packaging
 ```
 
 직접 검사 명령은 Git 편집기 주석 제거 없이 원문을 검사한다. 정상 종료는 0, 규칙 위반은 1,
 파일·규칙·실행 환경 오류는 2이다. 테스트는 정상/실패 메시지, 본문·breaking change,
 인용·코드·규칙 확장, 실제 Git 커밋 생성과 차단, 자동 merge/fixup/squash와 revert의 훅 호출 한계,
 주석 처리, 기존 hooksPath 복원과 linked worktree를 임시 저장소에서 검증한다.
-개발용 scripts·훅·문서는 PyPI 허용 목록에 추가하지 않으며 sdist에서는 해당 테스트를 건너뛴다.
+개발용 scripts·훅·문서는 앱 번들·DMG에 포함하지 않는다.
 
 로컬 훅은 기술적으로 `git commit --no-verify`로 우회할 수 있지만 저장소 정책은 형식
 실패를 훅 비활성화나 우회로 제출하는 것을 금지한다. 원격 강제 범위는 실제로 실행해

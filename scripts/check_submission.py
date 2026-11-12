@@ -163,9 +163,9 @@ def check_submission(
     if (
         kind == "issue"
         and template == "bug"
-        and sections.get("사용 구성 요소") not in {"macOS 앱", "CLI/TUI"}
+        and sections.get("사용 구성 요소") != "macOS 앱"
     ):
-        errors.append("사용 구성 요소는 macOS 앱 또는 CLI/TUI여야 합니다.")
+        errors.append("사용 구성 요소는 macOS 앱이어야 합니다.")
     if kind == "pr" and not related_issues(sections.get("📌 Summary", "")):
         errors.append("Summary에 heiccy 이슈를 연결하는 Closes #번호가 필요합니다.")
     return list(dict.fromkeys(errors))

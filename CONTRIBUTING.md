@@ -1,6 +1,10 @@
 # 기여 안내
 
-개발·이슈·PR·빌드·배포는 공개 저장소 `jaehunshin-git/heiccy`에서 진행합니다.
+Swift macOS 앱·DMG의 개발·이슈·PR·빌드·배포는 공개 저장소 `jaehunshin-git/heiccy`에서 진행합니다.
+Python CLI/TUI·PyPI는 `jaehunshin-git/heic-converter-tui`의 담당 제품입니다.
+이전 통합 방침은 [제품별 저장소 분리 결정](docs/decisions/2026-10-18-product-repository-split.md)으로
+대체됐습니다. Python 제품의 소스·문서·이슈는
+[heic-converter-tui](https://github.com/jaehunshin-git/heic-converter-tui)에서 관리합니다.
 작업 전에 현재 브랜치, 변경 파일과 `AGENTS.md`를 확인하고 다른 작업자의 변경을 보존하세요.
 빌드·검증 방법은 [빌드 안내](docs/build.md), 배포·보호 정책은 [저장소 운영](docs/repository-operations.md)을 따릅니다.
 

@@ -77,3 +77,42 @@ macOS 15·26 원격 CI 재실행, main 반영, 실제 Photos·수신 메신저�
 공개 다운로드는 이번 검증에 포함하지 않는다. Developer ID 서명·공증은 기존
 미적용 상태다. 원격 CI를 성공으로 보고하려면 승인된 push 이후 해당 SHA의
 두 OS 실행 결과를 다시 확인해야 한다.
+
+## 승인된 push 이후의 원격 진단
+
+`2947a39`·`d03cd4d`를 push한
+[첫 CI 실행](https://github.com/jaehunshin-git/heiccy/actions/runs/43129791239)은
+두 OS 모두 네이티브 통합 14개 통과·2개 실패다. Display P3 검사는 통과했지만
+기존 사용자 ICC의 JPEG `safe`·`preserve` 실패는 유지됐다.
+
+진단을 추가한 `20faae4`·`61b8f49` 중 최신 커밋의
+[원격 실행](https://github.com/jaehunshin-git/heiccy/actions/runs/43130685909)도
+같은 두 검사에서 실패했다. macOS 15에서 확인한 원본 ICC는 588바이트의
+`heiccy source` 프로필이고, 기본·SDR 디코딩과 출력 JPEG의 ICC는 모두
+3,144바이트의 `sRGB IEC61966-2.1` 프로필이며 SHA-256도 서로 같다.
+즉 JPEG 저장 이전의 ImageIO 디코딩 단계에서 프로파일이 정규화됐다.
+`CGColorSpace.copyICCData()`만으로 원본 ICC를 복원할 수 있다는 가정은
+원격 증거로 반박됐다.
+
+후속 수정은 기본 이미지에 연결된 원본 HEIF `colr` ICC를 읽어, SDR 렌더링의
+목표 색공간과 저장할 프로파일을 함께 선택하는 방향이다. 기존 bounds 검사를
+가진 HEIF 판독기를 재사용하고 EXIF 유무와 ICC 추출을 분리한다. 이 단계의
+검증·원격 결과는 완료 후 아래에 기록한다.
+
+### 원본 ICC 추출 후속 수정의 로컬 검증
+
+기본 이미지의 `prof`·`rICC` 원문을 기존 HEIF Reader로 추출하고, 유효한 SDR
+RGB 프로필로 렌더링한 뒤 동일 바이트를 JPEG·PNG에 기록하도록 수정했다.
+`nclx`만 있는 입력과 HDR·확장 범위 프로필은 기존 색공간 경로를 사용한다.
+HDR 출력에 SDR 프로필을 재부착하지 않는다.
+
+CG 색공간 생성만으로 ICC 유효성을 보장할 수 없다는 독립 리뷰의 실제 손상
+프로필 재현을 반영했다. 선언 길이·서명·RGB 헤더·태그 목록과 데이터 경계를
+검사한 뒤 색공간을 생성한다. 기본 이미지 연결·버전·넓은 인덱스·essential bit·
+다른 이미지 배제·모호한 중복·손상·Data slice 회귀 검사를 추가했다.
+
+현재 작업 폴더에서 Swift 빌드와 NativeWorker XCTest 26개, worker 통합
+16개가 통과했다. `build.sh` 전체 실행도 통과하여 앱·패널 재실행·DMG 체크섬·
+마운트·설치 복사본 worker/앱을 다시 확인했다. gpt-6.1-sol의 최종 독립 리뷰에서
+앞선 손상 ICC 지적 해소와 추가 correctness 발견 없음을 확인했다.
+이 후속 수정의 macOS 15·26 원격 성공 여부는 승인된 push 후 CI에서 확인한다.

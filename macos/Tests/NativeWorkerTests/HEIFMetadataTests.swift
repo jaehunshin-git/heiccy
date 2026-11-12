@@ -4,6 +4,85 @@ import XCTest
 @testable import NativeWorker
 
 final class HEIFMetadataTests: XCTestCase {
+    func testOriginalICCUsesPrimaryAssociationAndPreservesBytes() throws {
+        let original = Data("원본 ICC 바이트".utf8)
+        let thumbnail = Self.box("colr", Data("profthumbnail".utf8))
+        for version in 0...1 {
+            for wide in [false, true] {
+                for type in ["prof", "rICC"] {
+                    let primary: UInt64 = version == 0 ? 7 : 70_000
+                    let profile = Self.box("colr", Data(type.utf8) + original)
+                    let padding = Array(repeating: Self.box("free", Data()), count: wide ? 128 : 0)
+                    let properties = [thumbnail] + padding + [profile]
+                    let essential: UInt64 = wide ? 0x8000 : 0x80
+                    let associations: [(UInt64, [UInt64])] = [
+                        (1, [1]), (primary, [0, essential | UInt64(properties.count)])
+                    ]
+                    let bytes = Self.colorContainer(properties, associations, primary: primary,
+                                                    version: version, wide: wide)
+                    XCTAssertEqual(try HEIFMetadata.colorProfile(from: bytes), original)
+                    let prefixed = Data([0, 1, 2]) + bytes
+                    XCTAssertEqual(try HEIFMetadata.colorProfile(from: prefixed.dropFirst(3)), original)
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    defer { try? FileManager.default.removeItem(at: url) }
+                    try bytes.write(to: url)
+                    XCTAssertEqual(try HEIFMetadata.colorProfile(from: url), original)
+                }
+            }
+        }
+    }
+
+    func testNCLXAndSecondaryICCDoNotSupplyPrimaryICC() throws {
+        let nclx = Self.box("colr", Data("nclx".utf8) + Data([0, 1, 0, 13, 0, 1, 128]))
+        let secondary = Self.box("colr", Data("profsecondary".utf8))
+        XCTAssertNil(try HEIFMetadata.colorProfile(from:
+            Self.colorContainer([nclx, secondary], [(7, [1]), (9, [2])])))
+        XCTAssertNil(try HEIFMetadata.colorProfile(from:
+            Self.colorContainer([secondary], [(9, [1])])))
+    }
+
+    func testICCRejectsAmbiguityInvalidAssociationsAndBounds() throws {
+        let icc = Self.box("colr", Data("proforiginal".utf8))
+        let invalid = [
+            Self.colorContainer([icc, icc], [(7, [1, 2])]),
+            Self.colorContainer([icc], [(7, [1, 1])]),
+            Self.colorContainer([icc], [(7, [1]), (7, [1])]),
+            Self.colorContainer([icc], [(7, [2])]),
+            Self.colorContainer([icc], [(7, [0x80])]),
+            Self.colorContainer([icc], [(0, [1])]),
+            Self.colorContainer([icc], [(7, [1])], primary: 0),
+            Self.colorContainer([Self.box("colr", Data("prof".utf8))], [(7, [1])]),
+            Self.colorContainer([Self.box("colr", Data([1, 2]))], [(7, [1])]),
+            Self.colorContainer([icc], [(7, [1])], version: 2),
+            Self.colorContainer([icc], [(7, [1])], flags: 2),
+        ]
+        for bytes in invalid { XCTAssertThrowsError(try HEIFMetadata.colorProfile(from: bytes)) }
+        let valid = Self.colorContainer([icc], [(7, [1])])
+        for length in 0..<valid.count {
+            XCTAssertThrowsError(try HEIFMetadata.colorProfile(from: Data(valid.prefix(length))))
+        }
+        var wrongSize = valid
+        wrongSize.replaceSubrange(0..<4, with: Self.integer(UInt64.max, 4))
+        XCTAssertThrowsError(try HEIFMetadata.colorProfile(from: wrongSize))
+    }
+
+    private static func colorContainer(_ properties: [Data], _ entries: [(UInt64, [UInt64])],
+                                       primary: UInt64 = 7, version: Int = 0, wide: Bool = false,
+                                       flags: UInt64? = nil) -> Data {
+        let itemWidth = version == 0 ? 2 : 4
+        let pitm = fullBox("pitm", version: min(version, 1), integer(primary, itemWidth))
+        var associations = integer(UInt64(entries.count), 4)
+        for (item, indexes) in entries {
+            associations.append(integer(item, itemWidth))
+            associations.append(UInt8(indexes.count))
+            for index in indexes { associations.append(integer(index, wide ? 2 : 1)) }
+        }
+        let header = Data([UInt8(version)]) + integer(flags ?? (wide ? 1 : 0), 3)
+        let ipma = box("ipma", header + associations)
+        let ipco = box("ipco", properties.reduce(Data(), +))
+        return fullBox("meta", pitm + box("iprp", ipco + ipma))
+    }
+
     func testVersionsFileAndIDATExtentsPreserveOriginalEXIF() throws {
         for version in 0...2 {
             for method in 0...1 where version > 0 || method == 0 {

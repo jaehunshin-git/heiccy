@@ -1,7 +1,7 @@
 import Foundation
 import ImageIO
 
-/// 기본 이미지에 연결된 원본 EXIF만 읽는다. HEIF 소스를 ImageIO에 전달하지 않으므로
+/// 기본 이미지에 연결된 원본 EXIF와 ICC를 읽는다. HEIF 소스를 ImageIO에 전달하지 않으므로
 /// 별도 XMP 항목의 dc:description 등이 TIFF 속성으로 승격되는 경로가 없다.
 enum HEIFMetadata {
     enum ExtractionError: LocalizedError {
@@ -11,11 +11,19 @@ enum HEIFMetadata {
 
         var errorDescription: String? {
             switch self {
-            case .malformed(let reason): return "HEIF EXIF 구조가 손상되었습니다: \(reason)"
-            case .unsupported(let reason): return "지원하지 않는 HEIF EXIF 구조입니다: \(reason)"
+            case .malformed(let reason): return "HEIF 메타데이터 구조가 손상되었습니다: \(reason)"
+            case .unsupported(let reason): return "지원하지 않는 HEIF 메타데이터 구조입니다: \(reason)"
             case .decoding(let reason): return "원본 EXIF 속성을 읽지 못했습니다: \(reason)"
             }
         }
+    }
+
+    static func colorProfile(from url: URL) throws -> Data? {
+        try colorProfile(from: Data(contentsOf: url, options: .mappedIfSafe))
+    }
+
+    static func colorProfile(from data: Data) throws -> Data? {
+        try Container(data: data).colorProfile()
     }
 
     static func exifProperties(from url: URL) throws -> [String: Any]? {
@@ -193,6 +201,77 @@ enum HEIFMetadata {
                 throw ExtractionError.malformed("중복된 메타데이터 제어 박스가 있습니다.")
             }
             return matches.first
+        }
+
+        func colorProfile() throws -> Data? {
+            guard let meta = try unique(0x6d657461, in: boxes(0..<data.count)) else {
+                throw ExtractionError.unsupported("파일 수준 meta 박스가 없습니다.")
+            }
+            var header = Reader(data, meta.payload)
+            _ = try header.fullBox(0...0)
+            let children = try boxes(header.position..<header.end)
+            guard let pitm = try unique(0x7069746d, in: children) else {
+                throw ExtractionError.malformed("ICC를 선택할 기본 이미지 pitm이 없습니다.")
+            }
+            var primaryReader = Reader(data, pitm.payload)
+            let version = try primaryReader.fullBox(0...1)
+            let primary = try primaryReader.uint(version == 0 ? 2 : 4)
+            try primaryReader.finished()
+            guard primary != 0 else { throw ExtractionError.malformed("기본 이미지 ID가 0입니다.") }
+            guard let iprp = try unique(0x69707270, in: children) else { return nil }
+            let propertyBoxes = try boxes(iprp.payload)
+            guard let ipco = try unique(0x6970636f, in: propertyBoxes) else {
+                throw ExtractionError.malformed("iprp의 속성 목록 ipco가 없습니다.")
+            }
+            let properties = try boxes(ipco.payload)
+            let associations = propertyBoxes.filter { $0.type == 0x69706d61 }
+            guard !associations.isEmpty else {
+                throw ExtractionError.malformed("속성을 이미지에 연결할 ipma가 없습니다.")
+            }
+            var result: Data?, primarySeen = false
+            for association in associations {
+                var reader = Reader(data, association.payload)
+                let version = try reader.uint(1), flags = try reader.uint(3)
+                guard version <= 1, flags <= 1 else {
+                    throw ExtractionError.unsupported("ipma 버전 또는 플래그")
+                }
+                let itemWidth = version == 0 ? 2 : 4
+                let indexWidth = flags == 0 ? 1 : 2
+                let indexMask: UInt64 = flags == 0 ? 0x7f : 0x7fff
+                let count = try reader.uint(4)
+                guard count <= UInt64(maximumEntries), count <= UInt64(reader.remaining / (itemWidth + 1)) else {
+                    throw ExtractionError.malformed("ipma 항목 수가 범위를 벗어났습니다.")
+                }
+                for _ in 0..<Int(count) {
+                    let item = try reader.uint(itemWidth)
+                    guard item != 0 else { throw ExtractionError.malformed("ipma 이미지 ID가 0입니다.") }
+                    if item == primary {
+                        guard !primarySeen else { throw ExtractionError.malformed("기본 이미지 ipma 연결이 중복됐습니다.") }
+                        primarySeen = true
+                    }
+                    let count = try reader.uint(1)
+                    for _ in 0..<Int(count) {
+                        let association = try reader.uint(indexWidth)
+                        let index = Int(association & indexMask)
+                        guard index <= properties.count, index != 0 || association == 0 else {
+                            throw ExtractionError.malformed("ipma 속성 인덱스가 올바르지 않습니다.")
+                        }
+                        guard item == primary, index != 0 else { continue }
+                        let property = properties[index - 1]
+                        guard property.type == 0x636f6c72 else { continue }
+                        var color = Reader(data, property.payload)
+                        let type = try color.uint(4)
+                        guard type == 0x70726f66 || type == 0x72494343 else { continue }
+                        guard result == nil else { throw ExtractionError.malformed("기본 이미지에 여러 ICC가 연결됐습니다.") }
+                        guard color.remaining > 0, color.remaining <= 16 * 1_024 * 1_024 else {
+                            throw ExtractionError.malformed("ICC 크기가 0이거나 16MiB를 초과합니다.")
+                        }
+                        result = data.subdata(in: (data.startIndex + color.position)..<(data.startIndex + color.end))
+                    }
+                }
+                try reader.finished()
+            }
+            return result
         }
 
         func exifTIFF() throws -> Data? {

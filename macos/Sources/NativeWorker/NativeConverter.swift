@@ -49,8 +49,15 @@ enum NativeConverter {
         guard let raw = CGImageSourceCreateImageAtIndex(input, index, decode as CFDictionary) else {
             throw NativeConversionError.invalid("HEIC 픽셀을 읽지 못했습니다: \(source.path)")
         }
-        let outputSpace = raw.colorSpace?.model == .rgb
+        var outputSpace = raw.colorSpace?.model == .rgb
             ? raw.colorSpace! : CGColorSpace(name: CGColorSpace.sRGB)!
+        var outputProfile = outputSpace.copyICCData() as Data?
+        if !hdr, options.metadata != "strip", let profile = try HEIFMetadata.colorProfile(from: source) {
+            if let space = try sourceSDRColorSpace(profile: profile) {
+                outputSpace = space
+                outputProfile = profile
+            }
+        }
         let image: CGImage
         if hdr { image = raw }
         else {
@@ -124,16 +131,16 @@ enum NativeConverter {
             throw NativeConversionError.io("이미지 저장에 실패했습니다: \(destination.path)")
         }
         if options.outputFormat == "png" {
-            if !hdr, options.metadata != "strip", let profile = raw.colorSpace?.copyICCData() {
-                try PNGColorProfile.restore(temporary, profile: profile as Data)
+            if !hdr, options.metadata != "strip", let profile = outputProfile {
+                try PNGColorProfile.restore(temporary, profile: profile)
             }
             // Image I/O의 필터 옵션과 zlib 압축 수준은 서로 다르다.
             // 픽셀·HDR·메타데이터 청크를 유지하며 IDAT만 요청한 0~9 수준으로 재압축한다.
             try PNGCompression.recompress(temporary, level: options.pngCompression, metadata: options.metadata)
         } else if options.metadata == "strip" {
             try JPEGMetadata.strip(temporary)
-        } else if let profile = outputSpace.copyICCData() {
-            try JPEGMetadata.restoreICC(temporary, profile: profile as Data)
+        } else if let profile = outputProfile {
+            try JPEGMetadata.restoreICC(temporary, profile: profile)
         }
         let descriptor = Darwin.open(temporary.path, O_RDONLY)
         guard descriptor >= 0 else { throw posixError() }
@@ -168,6 +175,32 @@ enum NativeConverter {
         else if !hasGainMap { reason = "지원하는 Apple HDR 게인 맵이 없습니다." }
         else { reason = "방향 보정이 필요한 입력은 SDR로 처리합니다." }
         return NativeConversionResult(hdrApplied: hdr, sdrReason: reason)
+    }
+
+    static func sourceSDRColorSpace(profile: Data) throws -> CGColorSpace? {
+        func number(_ offset: Int) -> Int {
+            profile.dropFirst(offset).prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+        }
+        guard profile.count >= 132, number(0) == profile.count,
+              profile.dropFirst(36).prefix(4) == Data("acsp".utf8),
+              profile.dropFirst(16).prefix(4) == Data("RGB ".utf8) else {
+            throw NativeConversionError.invalid("원본 ICC 헤더 또는 길이가 올바르지 않습니다.")
+        }
+        let count = number(128)
+        guard count <= (profile.count - 132) / 12 else {
+            throw NativeConversionError.invalid("원본 ICC 태그 목록이 잘렸습니다.")
+        }
+        for index in 0..<count {
+            let start = number(132 + index * 12 + 4), length = number(132 + index * 12 + 8)
+            guard start >= 132 + count * 12, start <= profile.count, length <= profile.count - start else {
+                throw NativeConversionError.invalid("원본 ICC 태그가 프로필 경계를 벗어났습니다.")
+            }
+        }
+        guard let space = CGColorSpace(iccData: profile as CFData), space.model == .rgb,
+              space.supportsOutput else {
+            throw NativeConversionError.invalid("원본 ICC를 RGB 출력 색공간으로 사용할 수 없습니다.")
+        }
+        return CGColorSpaceUsesITUR_2100TF(space) || CGColorSpaceUsesExtendedRange(space) ? nil : space
     }
 
     static func posixError() -> NSError { NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }

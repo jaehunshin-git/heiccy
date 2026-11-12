@@ -5,6 +5,42 @@ import CoreGraphics
 @testable import NativeWorker
 
 final class NativeConverterTests: XCTestCase {
+    func testSourceSDRProfilesExcludePQAndHLG() throws {
+        for name in [CGColorSpace.sRGB, CGColorSpace.displayP3,
+                     CGColorSpace.itur_2100_PQ, CGColorSpace.itur_2100_HLG] {
+            let original = try XCTUnwrap(CGColorSpace(name: name))
+            let profile = try XCTUnwrap(original.copyICCData()) as Data
+            let selected = try NativeConverter.sourceSDRColorSpace(profile: profile)
+            if CGColorSpaceUsesITUR_2100TF(original) { XCTAssertNil(selected) }
+            else { XCTAssertNotNil(selected) }
+            let prefixed = Data([1, 2, 3]) + profile
+            XCTAssertEqual(try NativeConverter.sourceSDRColorSpace(profile: prefixed.dropFirst(3)) != nil,
+                           selected != nil)
+        }
+    }
+
+    func testMalformedSourceICCIsRejectedBeforeReattachment() throws {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let valid = try XCTUnwrap(space.copyICCData()) as Data
+        var cases = [Data(valid.prefix(131)), valid + Data([0])]
+        for (range, replacement) in [
+            (0..<4, Data([0, 0, 0, 1])),
+            (36..<40, Data("fail".utf8)),
+            (16..<20, Data("CMYK".utf8)),
+            (128..<132, Data([255, 255, 255, 255])),
+            (136..<140, Data([255, 255, 255, 255])),
+            (140..<144, Data([255, 255, 255, 255])),
+            (136..<140, Data([0, 0, 0, 4])),
+        ] {
+            var invalid = valid
+            invalid.replaceSubrange(range, with: replacement)
+            cases.append(invalid)
+        }
+        for profile in cases {
+            XCTAssertThrowsError(try NativeConverter.sourceSDRColorSpace(profile: profile))
+        }
+    }
+
     private func withFixture(_ body: (URL, URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

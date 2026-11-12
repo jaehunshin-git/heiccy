@@ -632,8 +632,13 @@ class Suite:
                 space = quartz.CGImageGetColorSpace(decoded)
                 profile = quartz.CGColorSpaceCopyICCData(space)
                 diagnostic = icc_diagnostic(bytes(profile) if profile else b"")
+                default_image = quartz.CGImageSourceCreateImageAtIndex(native, 0, None)
+                default_space = quartz.CGImageGetColorSpace(default_image)
+                default_profile = quartz.CGColorSpaceCopyICCData(default_space)
+                default_diagnostic = icc_diagnostic(bytes(default_profile) if default_profile else b"")
                 raise AssertionError(
                     f"{error}; ImageIO SDR input={diagnostic}; "
+                    f"ImageIO default input={default_diagnostic}; "
                     f"color_space_name={quartz.CGColorSpaceCopyName(space)}; "
                     f"color_space_model={quartz.CGColorSpaceGetModel(space)}") from error
         require(source.read_bytes() == original, "원본 변경")

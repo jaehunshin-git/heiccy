@@ -333,6 +333,18 @@ def jpeg_segments(path):
     return segments
 
 
+def icc_diagnostic(profile):
+    description = None
+    if profile:
+        try:
+            description = ImageCms.getProfileDescription(
+                ImageCms.ImageCmsProfile(io.BytesIO(profile))).strip()
+        except (OSError, ValueError) as error:
+            description = type(error).__name__
+    return {"length": len(profile), "sha256": hashlib.sha256(profile).hexdigest(),
+            "description": description}
+
+
 def assert_metadata(path, output_format, mode, expected_icc):
     import Quartz as quartz
     from Foundation import NSURL
@@ -368,7 +380,10 @@ def assert_metadata(path, output_format, mode, expected_icc):
             require(date == DATE, f"원본 EXIF 촬영 시각 누락: {date!r}")
             require(exif.get(274, 1) == 1, f"EXIF 방향 미정규화: {exif.get(274)}")
             icc = info.get("icc_profile", b"")
-            require(icc and icc == expected_icc, "safe/preserve 원본 ICC 누락 또는 변경")
+            require(icc and icc == expected_icc,
+                    "safe/preserve 원본 ICC 누락 또는 변경; "
+                    f"expected={icc_diagnostic(expected_icc)} actual={icc_diagnostic(icc)}; "
+                    f"first_differences={[i for i, (a, b) in enumerate(zip(expected_icc, icc, strict=False)) if a != b][:16]}")
             ImageCms.ImageCmsProfile(io.BytesIO(icc))
             if mode == "safe":
                 require(not gps and not props.get(quartz.kCGImagePropertyGPSDictionary),
@@ -603,7 +618,24 @@ class Suite:
         target = output / f"orientation.{output_format}"
         pixels(opened(target, output_format), expected)
         if metadata:
-            assert_metadata(target, output_format, mode, expected.info["icc_profile"])
+            try:
+                assert_metadata(target, output_format, mode, expected.info["icc_profile"])
+            except AssertionError as error:
+                import Quartz as quartz
+                from Foundation import NSURL
+
+                native = quartz.CGImageSourceCreateWithURL(NSURL.fileURLWithPath_(str(source)), None)
+                decoded = quartz.CGImageSourceCreateImageAtIndex(native, 0, {
+                    quartz.kCGImageSourceDecodeRequest: quartz.kCGImageSourceDecodeToSDR,
+                    quartz.kCGImageSourceShouldCacheImmediately: True,
+                })
+                space = quartz.CGImageGetColorSpace(decoded)
+                profile = quartz.CGColorSpaceCopyICCData(space)
+                diagnostic = icc_diagnostic(bytes(profile) if profile else b"")
+                raise AssertionError(
+                    f"{error}; ImageIO SDR input={diagnostic}; "
+                    f"color_space_name={quartz.CGColorSpaceCopyName(space)}; "
+                    f"color_space_model={quartz.CGColorSpaceGetModel(space)}") from error
         require(source.read_bytes() == original, "원본 변경")
         no_temporary(output)
 

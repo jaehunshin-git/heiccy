@@ -235,7 +235,8 @@ def xmp(orientation):
             '</rdf:RDF></x:xmpmeta>').encode()
 
 
-def fixture(path, *, orientation=1, metadata=False, size=(160, 96), alpha=False):
+def fixture(path, *, orientation=1, metadata=False, size=(160, 96), alpha=False,
+            icc_profile=None):
     import Quartz as quartz
     from Foundation import NSURL
 
@@ -251,7 +252,8 @@ def fixture(path, *, orientation=1, metadata=False, size=(160, 96), alpha=False)
     # from_pillow의 사전 방향 변환을 피하고 원본 픽셀을 직접 전달한다.
     encoded = from_bytes(image.mode, image.size, image.tobytes())
     if metadata:
-        encoded[0].info["icc_profile"] = tagged_profile()
+        icc_profile = tagged_profile() if icc_profile is None else icc_profile
+        encoded[0].info["icc_profile"] = icc_profile
     encoded.save(path, quality=100, chroma="444", exif=exif.tobytes(),
                  xmp=xmp(orientation) if metadata else None)
     native = quartz.CGImageSourceCreateWithURL(NSURL.fileURLWithPath_(str(path)), None)
@@ -265,8 +267,7 @@ def fixture(path, *, orientation=1, metadata=False, size=(160, 96), alpha=False)
             require(decoded.getexif().get(271) == CAMERA, "fixture Camera 누락")
             require(decoded.getexif().get_ifd(34853), "fixture GPS 누락")
             require(PRIVATE_XMP.encode() in decoded.info.get("xmp", b""), "fixture XMP 누락")
-            require(ICC_MARKER.encode("utf-16-be") in decoded.info.get("icc_profile", b""),
-                    "fixture ICC 누락")
+            require(decoded.info.get("icc_profile") == icc_profile, "fixture 원본 ICC 불일치")
         # pillow-heif는 HEIF의 회전·반전을 적용하고 EXIF Orientation을 1로 정규화한다.
         expected = decoded.copy()
     return expected
@@ -332,7 +333,7 @@ def jpeg_segments(path):
     return segments
 
 
-def assert_metadata(path, output_format, mode):
+def assert_metadata(path, output_format, mode, expected_icc):
     import Quartz as quartz
     from Foundation import NSURL
 
@@ -367,8 +368,7 @@ def assert_metadata(path, output_format, mode):
             require(date == DATE, f"원본 EXIF 촬영 시각 누락: {date!r}")
             require(exif.get(274, 1) == 1, f"EXIF 방향 미정규화: {exif.get(274)}")
             icc = info.get("icc_profile", b"")
-            require(icc and ICC_MARKER.encode("utf-16-be") in icc,
-                    "safe/preserve 원본 ICC 누락")
+            require(icc and icc == expected_icc, "safe/preserve 원본 ICC 누락 또는 변경")
             ImageCms.ImageCmsProfile(io.BytesIO(icc))
             if mode == "safe":
                 require(not gps and not props.get(quartz.kCGImagePropertyGPSDictionary),
@@ -591,9 +591,10 @@ class Suite:
         require(all(p.read_bytes() == data for p, data in originals.items()), "원본 변경")
         no_temporary(output)
 
-    def orientation(self, directory, orientation, output_format, mode="safe", *, metadata=True):
+    def orientation(self, directory, orientation, output_format, mode="safe", *, metadata=True,
+                    icc_profile=None):
         source = directory / "orientation.heic"
-        expected = fixture(source, orientation=orientation, metadata=metadata)
+        expected = fixture(source, orientation=orientation, metadata=metadata, icc_profile=icc_profile)
         original = source.read_bytes()
         output = directory / "out"
         records = eof_job(self.worker, directory, [source], output,
@@ -602,7 +603,7 @@ class Suite:
         target = output / f"orientation.{output_format}"
         pixels(opened(target, output_format), expected)
         if metadata:
-            assert_metadata(target, output_format, mode)
+            assert_metadata(target, output_format, mode, expected.info["icc_profile"])
         require(source.read_bytes() == original, "원본 변경")
         no_temporary(output)
 
@@ -838,6 +839,14 @@ class Suite:
             (mode, lambda c, m=mode: self.hdr(c, m))
             for mode in ("safe", "preserve", "strip")
         ] + [("JPEG SDR", lambda c: self.hdr(c, "safe", "jpeg"))]))
+        import Quartz as quartz
+        p3 = bytes(quartz.CGColorSpaceCopyICCData(
+            quartz.CGColorSpaceCreateWithName(quartz.kCGColorSpaceDisplayP3)))
+        self.check("16 Display P3 ICC 및 픽셀 보존", lambda d: self.group(d, [
+            (f"{mode} {output_format}", lambda c, m=mode, f=output_format:
+                self.orientation(c, 6, f, m, icc_profile=p3))
+            for mode in ("safe", "preserve") for output_format in ("jpeg", "png")
+        ]))
         print(f"검사 {self.number}: PASS={self.counts['PASS']} FAIL={self.counts['FAIL']} "
               f"SKIP={self.counts['SKIP']} (SKIP은 검증 성공이 아님)", flush=True)
         return 1 if self.counts["FAIL"] else 0

@@ -228,4 +228,53 @@ final class PNGCompressionTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: url), noScan)
         }
     }
+
+    func testJPEGICCRestorationPreservesMetadataAndEncodedPixels() throws {
+        try temporary { directory in
+            let signature = Data("ICC_PROFILE\0".utf8)
+            let originalProfile = Data([255, 226, 0, 19]) + signature + Data([1, 1, 7, 8, 9])
+            let otherMetadata = Data([255, 225, 0, 5, 1, 2, 3, 255, 226, 0, 5, 4, 5, 6])
+            let scan = Data([255, 218, 0, 2, 10, 20, 255, 0, 30, 255, 217])
+            let original = Data([255, 216]) + originalProfile + otherMetadata + scan
+            let url = directory.appendingPathComponent("profile.jpeg")
+            try original.write(to: url)
+            try JPEGMetadata.restoreICC(url, profile: Data([40, 50]))
+            let replacement = Data([255, 226, 0, 18]) + signature + Data([1, 1, 40, 50])
+            let expected = Data([255, 216]) + replacement + otherMetadata + scan
+            XCTAssertEqual(try Data(contentsOf: url), expected)
+            try JPEGMetadata.restoreICC(url, profile: Data([40, 50]))
+            XCTAssertEqual(try Data(contentsOf: url), expected)
+        }
+    }
+
+    func testJPEGICCSpansOrderedAPP2Segments() throws {
+        try temporary { directory in
+            let url = directory.appendingPathComponent("large-profile.jpeg")
+            let scan = Data([255, 218, 0, 2, 12, 255, 217])
+            try (Data([255, 216]) + scan).write(to: url)
+            let profile = Data(repeating: 42, count: 65_519) + Data([43])
+            try JPEGMetadata.restoreICC(url, profile: profile)
+            let signature = Data("ICC_PROFILE\0".utf8)
+            let first = Data([255, 226, 255, 255]) + signature + Data([1, 2]) + profile.prefix(65_519)
+            let second = Data([255, 226, 0, 17]) + signature + Data([2, 2, 43])
+            XCTAssertEqual(try Data(contentsOf: url), Data([255, 216]) + first + second + scan)
+        }
+    }
+
+    func testJPEGICCRestorationRejectsInvalidInputWithoutWriting() throws {
+        try temporary { directory in
+            let url = directory.appendingPathComponent("invalid-profile.jpeg")
+            for content in [Data(), Data([255, 216, 255, 226, 0, 20]), Data([255, 216, 255, 217])] {
+                try content.write(to: url)
+                XCTAssertThrowsError(try JPEGMetadata.restoreICC(url, profile: Data([1])))
+                XCTAssertEqual(try Data(contentsOf: url), content)
+            }
+            let original = Data([255, 216, 255, 218, 0, 2, 12, 255, 217])
+            try original.write(to: url)
+            for profile in [Data(), Data(repeating: 0, count: 65_519 * 255 + 1)] {
+                XCTAssertThrowsError(try JPEGMetadata.restoreICC(url, profile: profile))
+                XCTAssertEqual(try Data(contentsOf: url), original)
+            }
+        }
+    }
 }

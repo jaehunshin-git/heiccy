@@ -49,11 +49,11 @@ enum NativeConverter {
         guard let raw = CGImageSourceCreateImageAtIndex(input, index, decode as CFDictionary) else {
             throw NativeConversionError.invalid("HEIC 픽셀을 읽지 못했습니다: \(source.path)")
         }
+        let outputSpace = raw.colorSpace?.model == .rgb
+            ? raw.colorSpace! : CGColorSpace(name: CGColorSpace.sRGB)!
         let image: CGImage
         if hdr { image = raw }
         else {
-            let outputSpace = raw.colorSpace?.model == .rgb
-                ? raw.colorSpace! : CGColorSpace(name: CGColorSpace.sRGB)!
             // Pillow와 같이 출력 RGB 색공간에서 알파를 흰 배경에 합성한다.
             let context = CIContext(options: [.cacheIntermediates: false, .workingColorSpace: outputSpace])
             var pixels = CIImage(cgImage: raw).oriented(CGImagePropertyOrientation(rawValue: orientation) ?? .up)
@@ -132,6 +132,8 @@ enum NativeConverter {
             try PNGCompression.recompress(temporary, level: options.pngCompression, metadata: options.metadata)
         } else if options.metadata == "strip" {
             try JPEGMetadata.strip(temporary)
+        } else if let profile = outputSpace.copyICCData() {
+            try JPEGMetadata.restoreICC(temporary, profile: profile as Data)
         }
         let descriptor = Darwin.open(temporary.path, O_RDONLY)
         guard descriptor >= 0 else { throw posixError() }
@@ -173,11 +175,22 @@ enum NativeConverter {
 
 enum JPEGMetadata {
     static func strip(_ url: URL) throws {
+        try rewrite(url, removingPrivateMetadata: true, profile: nil)
+    }
+
+    static func restoreICC(_ url: URL, profile: Data) throws {
+        guard !profile.isEmpty, profile.count <= 65_519 * 255 else {
+            throw NativeConversionError.invalid("ICC 프로파일 크기가 올바르지 않습니다.")
+        }
+        try rewrite(url, removingPrivateMetadata: false, profile: profile)
+    }
+
+    private static func rewrite(_ url: URL, removingPrivateMetadata: Bool, profile: Data?) throws {
         let bytes = try Data(contentsOf: url)
         guard bytes.count > 2, bytes[0] == 0xff, bytes[1] == 0xd8 else {
             throw NativeConversionError.invalid("JPEG 형식이 올바르지 않습니다.")
         }
-        var result = Data(bytes.prefix(2)), offset = 2, hasScan = false
+        var result = Data(bytes.prefix(2)), offset = 2, hasScan = false, insertedProfile = false
         while offset < bytes.count {
             let markerStart = offset
             guard bytes[offset] == 0xff else { throw NativeConversionError.invalid("JPEG marker가 올바르지 않습니다.") }
@@ -185,6 +198,18 @@ enum JPEGMetadata {
             guard offset < bytes.count else { throw NativeConversionError.invalid("JPEG marker가 잘렸습니다.") }
             let marker = bytes[offset]; offset += 1
             guard marker != 0 && marker != 0xd8 else { throw NativeConversionError.invalid("JPEG marker가 올바르지 않습니다.") }
+            if let profile, !insertedProfile, marker != 0xe0 {
+                insertedProfile = true
+                let count = (profile.count + 65_518) / 65_519
+                for (index, start) in stride(from: 0, to: profile.count, by: 65_519).enumerated() {
+                    let end = min(start + 65_519, profile.count)
+                    let length = end - start + 16
+                    result.append(contentsOf: [0xff, 0xe2, UInt8(length >> 8), UInt8(length & 0xff)])
+                    result.append(contentsOf: "ICC_PROFILE\0".utf8)
+                    result.append(contentsOf: [UInt8(index + 1), UInt8(count)])
+                    result.append(profile[start..<end])
+                }
+            }
             if marker == 0xda {
                 guard offset + 2 <= bytes.count else { throw NativeConversionError.invalid("JPEG 스캔 헤더가 잘렸습니다.") }
                 let size = Int(bytes[offset]) * 256 + Int(bytes[offset + 1])
@@ -202,7 +227,10 @@ enum JPEGMetadata {
             let size = Int(bytes[offset]) * 256 + Int(bytes[offset + 1])
             guard size >= 2, size <= bytes.count - offset else { throw NativeConversionError.invalid("JPEG 메타데이터가 불완전합니다.") }
             // APP1(EXIF/XMP), APP13(IPTC), COM만 제거한다. 색 재현용 ICC(APP2)는 유지한다.
-            if marker != 0xe1 && marker != 0xed && marker != 0xfe {
+            let privateMetadata = removingPrivateMetadata && [0xe1, 0xed, 0xfe].contains(marker)
+            let replacedProfile = profile != nil && marker == 0xe2
+                && bytes[offset + 2..<offset + size].starts(with: Data("ICC_PROFILE\0".utf8))
+            if !privateMetadata && !replacedProfile {
                 result.append(bytes[markerStart..<offset + size])
             }
             offset += size
